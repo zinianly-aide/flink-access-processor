@@ -96,52 +96,282 @@ public class AccessRecordProcessor {
             )
         """);
 
+                tableEnv.executeSql("""
+            -- 排班表（a）
+CREATE TABLE schedule_a (
+    shift_id    BIGINT,           -- 排班记录ID
+    emp_id      BIGINT,
+    start_time  TIMESTAMP(3),
+    end_time    TIMESTAMP(3)
+                 ) WITH (
+                'connector' = 'jdbc',
+                'url' = 'jdbc:mysql://mysql:3306/access_db?useSSL=false&allowPublicKeyRetrieval=true',
+                'username' = 'root',
+                'password' = 'root_password',
+                'table-name' = 'hrbp_schedule_shift'
+            )
+        """);
+
+                tableEnv.executeSql("""
+            CREATE TABLE gate_b (
+    emp_id      BIGINT,
+    start_time  TIMESTAMP(3),     -- 在场开始
+    end_time    TIMESTAMP(3)
+) WITH (
+                'connector' = 'jdbc',
+                'url' = 'jdbc:mysql://mysql:3306/access_db?useSSL=false&allowPublicKeyRetrieval=true',
+                'username' = 'root',
+                'password' = 'root_password',
+                'table-name' = 'hrbp_gate_record'
+            )
+        """);
+
+                tableEnv.executeSql("""
+            -- 请假表（c）
+CREATE TABLE leave_c (
+    emp_id      BIGINT,
+    start_time  TIMESTAMP(3),
+    end_time    TIMESTAMP(3)
+) WITH (
+                'connector' = 'jdbc',
+                'url' = 'jdbc:mysql://mysql:3306/access_db?useSSL=false&allowPublicKeyRetrieval=true',
+                'username' = 'root',
+                'password' = 'root_password',
+                'table-name' = 'hrbp_leave_record'
+            )
+        """);
+
+                tableEnv.executeSql("""
+            -- 出差表（d）
+CREATE TABLE trip_d (
+    emp_id      BIGINT,
+    start_time  TIMESTAMP(3),
+    end_time    TIMESTAMP(3)
+) WITH (
+                'connector' = 'jdbc',
+                'url' = 'jdbc:mysql://mysql:3306/access_db?useSSL=false&allowPublicKeyRetrieval=true',
+                'username' = 'root',
+                'password' = 'root_password',
+                'table-name' = 'hrbp_trip_record'
+            )
+        """);
+
         // 处理逻辑1：计算停留时间
         tableEnv.executeSql("""
-            INSERT INTO stay_duration
-            SELECT 
-                employee_id,
-                start_time,
-                end_time,
-                TIMESTAMPDIFF(SECOND, start_time, end_time) AS duration_seconds,
-                location
-            FROM (
-                SELECT 
-                    employee_id,
-                    start_time,
-                    end_time,
-                    CASE 
-                        WHEN start_direction = 'IN' THEN 'INSIDE'
-                        ELSE 'OUTSIDE'
-                    END AS location
-                FROM (
-                    SELECT 
-                        r1.employee_id,
-                        r1.access_time AS start_time,
-                        r2.access_time AS end_time,
-                        r1.direction AS start_direction,
-                        r2.direction AS end_direction
-                    FROM (
-                        SELECT 
-                            employee_id,
-                            access_time,
-                            direction,
-                            ROW_NUMBER() OVER (PARTITION BY employee_id ORDER BY access_time) AS row_num
-                        FROM access_records
-                    ) r1
-                    JOIN (
-                        SELECT 
-                            employee_id,
-                            access_time,
-                            direction,
-                            ROW_NUMBER() OVER (PARTITION BY employee_id ORDER BY access_time) AS row_num
-                        FROM access_records
-                    ) r2 ON 
-                        r1.employee_id = r2.employee_id AND 
-                        r1.row_num + 1 = r2.row_num
-                ) paired_records
-                WHERE start_direction <> end_direction
-            ) calculated_duration
+            WITH
+-- 1) 排班基表
+work_slot AS (
+    SELECT
+        shift_id,
+        emp_id,
+        start_time,
+        end_time
+    FROM schedule_a
+),
+
+-- 2) 把 门禁 + 请假 + 出差 都裁剪到排班里，组成“覆盖区间”原始集合
+covered_raw AS (
+
+    -- 2.1 门禁覆盖：证明人在现场
+    SELECT
+        s.shift_id,
+        s.emp_id,
+        GREATEST(g.start_time, s.start_time) AS start_time,
+        LEAST(g.end_time,   s.end_time)     AS end_time
+    FROM work_slot s
+    JOIN gate_b g
+      ON g.emp_id      = s.emp_id
+     AND g.start_time  < s.end_time     -- 有交集
+     AND g.end_time    > s.start_time
+
+    UNION ALL
+
+    -- 2.2 请假覆盖：合法不在现场
+    SELECT
+        s.shift_id,
+        s.emp_id,
+        GREATEST(l.start_time, s.start_time) AS start_time,
+        LEAST(l.end_time,   s.end_time)      AS end_time
+    FROM work_slot s
+    JOIN leave_c l
+      ON l.emp_id      = s.emp_id
+     AND l.start_time  < s.end_time
+     AND l.end_time    > s.start_time
+
+    UNION ALL
+
+    -- 2.3 出差覆盖：也是合法不在现场
+    SELECT
+        s.shift_id,
+        s.emp_id,
+        GREATEST(t.start_time, s.start_time) AS start_time,
+        LEAST(t.end_time,   s.end_time)      AS end_time
+    FROM work_slot s
+    JOIN trip_d t
+      ON t.emp_id      = s.emp_id
+     AND t.start_time  < s.end_time
+     AND t.end_time    > s.start_time
+),
+
+-- 3) 对同一员工、同一班次内的覆盖区间排序，准备合并
+ordered AS (
+    SELECT
+        cr.*,
+        LAG(cr.end_time) OVER (
+            PARTITION BY cr.emp_id, cr.shift_id
+            ORDER BY cr.start_time
+        ) AS prev_end
+    FROM covered_raw cr
+),
+
+-- 4) 打“新组标记”，把重叠 / 相连的覆盖段合并成不重叠的区间
+marked AS (
+    SELECT
+        o.*,
+        CASE
+            WHEN o.prev_end IS NULL
+                 OR o.start_time > o.prev_end   -- 与上一个不相交
+            THEN 1
+            ELSE 0
+        END AS grp_flag
+    FROM ordered o
+),
+
+merged AS (
+    SELECT
+        shift_id,
+        emp_id,
+        MIN(start_time) AS start_time,
+        MAX(end_time)   AS end_time
+    FROM (
+        SELECT
+            m.*,
+            -- 累加 grp_flag 得到组号
+            SUM(grp_flag) OVER (
+                PARTITION BY m.emp_id, m.shift_id
+                ORDER BY m.start_time
+                ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+            ) AS grp
+        FROM marked m
+    ) t
+    GROUP BY shift_id, emp_id, grp
+),
+
+-- 5) 基于“排班区间 - 合并后的覆盖区间”求出所有空档
+gaps AS (
+
+    -- 5.1 排班前缀空档：排班开始 -> 第一段覆盖开始
+    SELECT
+        s.shift_id,
+        s.emp_id,
+        s.start_time AS gap_start,
+        mf.start_time AS gap_end
+    FROM work_slot s
+    JOIN (
+        SELECT *
+        FROM (
+            SELECT
+                m.*,
+                ROW_NUMBER() OVER (
+                    PARTITION BY m.emp_id, m.shift_id
+                    ORDER BY m.start_time
+                ) AS rn
+            FROM merged m
+        ) x
+        WHERE rn = 1
+    ) mf
+      ON mf.shift_id = s.shift_id
+     AND mf.emp_id   = s.emp_id
+    WHERE s.start_time < mf.start_time
+
+    UNION ALL
+
+    -- 5.2 覆盖区间之间的空档：前一段覆盖结束 -> 下一段覆盖开始
+    SELECT
+        s.shift_id,
+        s.emp_id,
+        mp.end_time   AS gap_start,
+        mn.start_time AS gap_end
+    FROM work_slot s
+    JOIN merged mn
+      ON mn.shift_id = s.shift_id
+     AND mn.emp_id   = s.emp_id
+    JOIN merged mp
+      ON mp.shift_id = s.shift_id
+     AND mp.emp_id   = s.emp_id
+     AND mp.end_time < mn.start_time
+    -- 只保留“最近的前一个覆盖段”
+    WHERE mp.end_time = (
+        SELECT MAX(m2.end_time)
+        FROM merged m2
+        WHERE m2.shift_id = s.shift_id
+          AND m2.emp_id   = s.emp_id
+          AND m2.end_time < mn.start_time
+    )
+
+    UNION ALL
+
+    -- 5.3 尾部空档：最后一段覆盖结束 -> 排班结束
+    SELECT
+        s.shift_id,
+        s.emp_id,
+        ml.end_time AS gap_start,
+        s.end_time  AS gap_end
+    FROM work_slot s
+    JOIN (
+        SELECT *
+        FROM (
+            SELECT
+                m.*,
+                ROW_NUMBER() OVER (
+                    PARTITION BY m.emp_id, m.shift_id
+                    ORDER BY m.start_time DESC
+                ) AS rn
+            FROM merged m
+        ) x
+        WHERE rn = 1
+    ) ml
+      ON ml.shift_id = s.shift_id
+     AND ml.emp_id   = s.emp_id
+    WHERE ml.end_time < s.end_time
+
+    UNION ALL
+
+    -- 5.4 完全没有门禁/请假/出差覆盖的班次：整个排班都是空档
+    SELECT
+        s.shift_id,
+        s.emp_id,
+        s.start_time AS gap_start,
+        s.end_time   AS gap_end
+    FROM work_slot s
+    LEFT JOIN merged m
+      ON m.shift_id = s.shift_id
+     AND m.emp_id   = s.emp_id
+    WHERE m.shift_id IS NULL
+),
+
+-- 6) 只保留空档 > 30 分钟的“缺勤”
+long_gaps AS (
+    SELECT
+        g.shift_id,
+        g.emp_id,
+        g.gap_start,
+        g.gap_end,
+        TIMESTAMPDIFF(MINUTE, g.gap_start, g.gap_end) AS gap_minutes
+    FROM gaps g
+    WHERE TIMESTAMPDIFF(MINUTE, g.gap_start, g.gap_end) > 30
+)
+
+-- 7) 最终结果：排班内 未请假 且 门禁外停留 > 30 分钟，且已排除出差的缺勤
+SELECT
+    shift_id,
+    emp_id,
+    gap_start,
+    gap_end,
+    gap_minutes
+FROM long_gaps
+ORDER BY emp_id, gap_start;
+
         """);
 
         // 处理逻辑2：生成提醒记录
