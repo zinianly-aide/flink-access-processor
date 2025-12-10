@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.example.flinkmonitorbackend.mapper.ExceptionalHoursRecordMapper">
+    <select id="findAll" resultType="com.example.flinkmonitorbackend.entity.ExceptionalHoursRecord">
+        SELECT * FROM exceptional_hours_records ORDER BY created_at DESC
+    </select>
+    <select id="findByStatus" parameterType="java.lang.String" resultType="com.example.flinkmonitorbackend.entity.ExceptionalHoursRecord">
+        SELECT * FROM exceptional_hours_records WHERE status = #{status} ORDER BY created_at DESC
+    </select>
+    <select id="findByEmpId" parameterType="java.lang.Long" resultType="com.example.flinkmonitorbackend.entity.ExceptionalHoursRecord">
+        SELECT * FROM exceptional_hours_records WHERE emp_id = #{empId} ORDER BY created_at DESC
+    </select>
+    <select id="findByIndicatorType" parameterType="java.lang.String" resultType="com.example.flinkmonitorbackend.entity.ExceptionalHoursRecord">
+        SELECT * FROM exceptional_hours_records WHERE indicator_type = #{indicatorType} ORDER BY created_at DESC
+    </select>
+    <select id="findById" parameterType="java.lang.Long" resultType="com.example.flinkmonitorbackend.entity.ExceptionalHoursRecord">
+        SELECT * FROM exceptional_hours_records WHERE id = #{id}
+    </select>
+    <update id="update" parameterType="com.example.flinkmonitorbackend.entity.ExceptionalHoursRecord">
+        UPDATE exceptional_hours_records 
+        SET 
+            status = #{status},
+            reason = #{reason},
+            image_url = #{imageUrl},
+            preventive_measures = #{preventiveMeasures},
+            approved_by = #{approvedBy},
+            approved_at = #{approvedAt}
+        WHERE id = #{id}
+    </update>
+</mapper>

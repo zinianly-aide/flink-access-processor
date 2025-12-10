@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.example.flinkmonitorbackend.mapper.OvertimeRecordMapper">
+    <select id="findAll" resultType="com.example.flinkmonitorbackend.entity.OvertimeRecord">
+        SELECT * FROM overtime_records ORDER BY work_date DESC
+    </select>
+    <select id="findByEmpId" parameterType="java.lang.Long" resultType="com.example.flinkmonitorbackend.entity.OvertimeRecord">
+        SELECT * FROM overtime_records WHERE emp_id = #{empId} ORDER BY work_date DESC
+    </select>
+    <select id="findByDateRange" resultType="com.example.flinkmonitorbackend.entity.OvertimeRecord">
+        SELECT * FROM overtime_records WHERE work_date BETWEEN #{startDate} AND #{endDate} ORDER BY work_date DESC
+    </select>
+</mapper>

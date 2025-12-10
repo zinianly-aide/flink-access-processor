@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.example.flinkmonitorbackend.mapper.ExceptionalHoursIndicatorMapper">
+    <select id="findAll" resultType="com.example.flinkmonitorbackend.entity.ExceptionalHoursIndicator">
+        SELECT * FROM exceptional_hours_indicators ORDER BY id ASC
+    </select>
+    <select id="findActiveIndicators" resultType="com.example.flinkmonitorbackend.entity.ExceptionalHoursIndicator">
+        SELECT * FROM exceptional_hours_indicators WHERE is_active = TRUE ORDER BY id ASC
+    </select>
+    <select id="findById" parameterType="java.lang.Long" resultType="com.example.flinkmonitorbackend.entity.ExceptionalHoursIndicator">
+        SELECT * FROM exceptional_hours_indicators WHERE id = #{id}
+    </select>
+    <insert id="insert" parameterType="com.example.flinkmonitorbackend.entity.ExceptionalHoursIndicator">
+        INSERT INTO exceptional_hours_indicators (indicator_name, indicator_type, threshold, description, is_active)
+        VALUES (#{indicatorName}, #{indicatorType}, #{threshold}, #{description}, #{isActive})
+    </insert>
+    <update id="update" parameterType="com.example.flinkmonitorbackend.entity.ExceptionalHoursIndicator">
+        UPDATE exceptional_hours_indicators 
+        SET 
+            indicator_name = #{indicatorName}, 
+            indicator_type = #{indicatorType}, 
+            threshold = #{threshold}, 
+            description = #{description}, 
+            is_active = #{isActive}
+        WHERE id = #{id}
+    </update>
+</mapper>

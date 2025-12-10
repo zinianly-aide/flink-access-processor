@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.example.flinkmonitorbackend.mapper.OrganizationMapper">
+    <select id="findAll" resultType="com.example.flinkmonitorbackend.entity.Organization">
+        SELECT * FROM organizations ORDER BY id ASC
+    </select>
+    <select id="findActiveOrganizations" resultType="com.example.flinkmonitorbackend.entity.Organization">
+        SELECT * FROM organizations WHERE is_active = TRUE ORDER BY id ASC
+    </select>
+    <select id="findById" parameterType="java.lang.Long" resultType="com.example.flinkmonitorbackend.entity.Organization">
+        SELECT * FROM organizations WHERE id = #{id}
+    </select>
+    <select id="getOrgExceptionalHoursSummary" resultType="map">
+        SELECT 
+            o.id AS org_id,
+            o.org_name,
+            o.org_code,
+            COUNT(e.id) AS total_records,
+            COUNT(CASE WHEN e.status = 'pending' THEN 1 END) AS pending_count,
+            COUNT(CASE WHEN e.status = 'processed' THEN 1 END) AS processed_count,
+            COUNT(CASE WHEN e.status = 'approved' THEN 1 END) AS approved_count,
+            AVG(e.actual_value - e.threshold) AS avg_exceed_hours
+        FROM exceptional_hours_records e
+        JOIN organizations o ON e.org_id = o.id
+        GROUP BY o.id, o.org_name, o.org_code
+        ORDER BY total_records DESC
+    </select>
+</mapper>

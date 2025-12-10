@@ -94,6 +94,23 @@ INSERT INTO travel_records (employee_id, travel_date, reason) VALUES
 USE access_db;
 
 -- =========================================
+-- 0. 组织表 organizations
+-- =========================================
+DROP TABLE IF EXISTS organizations;
+CREATE TABLE organizations (
+    id          BIGINT AUTO_INCREMENT PRIMARY KEY,
+    org_name    VARCHAR(100) NOT NULL,            -- 组织名称
+    org_code    VARCHAR(50) NOT NULL,             -- 组织代码
+    parent_id   BIGINT NULL,                       -- 上级组织ID
+    description VARCHAR(200) NULL,                -- 组织描述
+    is_active   BOOLEAN NOT NULL DEFAULT TRUE,     -- 是否启用
+    created_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE KEY idx_org_code (org_code),
+    UNIQUE KEY idx_org_name (org_name)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- =========================================
 -- 1. 排班表 hrbp_schedule_shift
 -- =========================================
 DROP TABLE IF EXISTS hrbp_schedule_shift;
@@ -216,3 +233,106 @@ INSERT INTO hrbp_trip_record (emp_id, start_time, end_time, destination)
 VALUES
 -- 员工 1001：2025-01-11 出差 10:00-17:00
 (1001, '2025-01-11 10:00:00', '2025-01-11 17:00:00', '北京');
+
+-- =========================================
+-- 7. 加班表 overtime_records
+-- =========================================
+DROP TABLE IF EXISTS overtime_records;
+CREATE TABLE overtime_records (
+    id          BIGINT AUTO_INCREMENT PRIMARY KEY,
+    emp_id      BIGINT NOT NULL,                    -- 员工ID
+    work_date   DATE NOT NULL,                      -- 工作日期
+    actual_hours INT NOT NULL,                     -- 实际工作小时数
+    regular_hours INT NOT NULL DEFAULT 8,           -- 正常工作小时数
+    overtime_hours INT NOT NULL,                   -- 加班小时数
+    created_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    KEY idx_emp_date (emp_id, work_date),
+    KEY idx_work_date (work_date)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- =========================================
+-- 8. 异常工时指标表 exceptional_hours_indicators
+-- =========================================
+DROP TABLE IF EXISTS exceptional_hours_indicators;
+CREATE TABLE exceptional_hours_indicators (
+    id          BIGINT AUTO_INCREMENT PRIMARY KEY,
+    indicator_name VARCHAR(100) NOT NULL,        -- 指标名称（如：周工时超60小时、连续工作6天以上）
+    indicator_type VARCHAR(50) NOT NULL,         -- 指标类型（如：weekly_hours, consecutive_days）
+    threshold   INT NOT NULL,                    -- 阈值（如：60小时、6天）
+    description VARCHAR(200) NULL,               -- 指标描述
+    is_active   BOOLEAN NOT NULL DEFAULT TRUE,   -- 是否启用
+    created_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE KEY idx_indicator_name (indicator_name)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- =========================================
+-- 9. 异常工时记录表 exceptional_hours_records
+-- =========================================
+DROP TABLE IF EXISTS exceptional_hours_records;
+CREATE TABLE exceptional_hours_records (
+    id          BIGINT AUTO_INCREMENT PRIMARY KEY,
+    emp_id      BIGINT NOT NULL,                    -- 员工ID
+    org_id      BIGINT NOT NULL,                    -- 组织ID
+    indicator_id BIGINT NOT NULL,                  -- 关联的指标ID
+    indicator_name VARCHAR(100) NOT NULL,          -- 指标名称（冗余）
+    indicator_type VARCHAR(50) NOT NULL,           -- 指标类型（冗余）
+    actual_value INT NOT NULL,                     -- 实际值
+    threshold   INT NOT NULL,                      -- 阈值
+    period_start DATE NOT NULL,                    -- 统计周期开始
+    period_end   DATE NOT NULL,                    -- 统计周期结束
+    status      VARCHAR(50) NOT NULL DEFAULT 'pending', -- 处理状态：pending, processed, approved
+    reason      TEXT NULL,                         -- 原因说明
+    image_url   VARCHAR(255) NULL,                 -- 图片说明
+    preventive_measures TEXT NULL,                 -- 防范措施
+    approved_by VARCHAR(50) NULL,                  -- 审批人
+    approved_at TIMESTAMP NULL,                    -- 审批时间
+    created_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    KEY idx_emp_status (emp_id, status),
+    KEY idx_indicator_type (indicator_type),
+    KEY idx_period (period_start, period_end),
+    KEY idx_org_id (org_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- ========== 初始化组织数据 ==========
+INSERT INTO organizations (org_name, org_code, parent_id, description)
+VALUES
+('技术部', 'TECH', NULL, '技术开发部门'),
+('市场部', 'MARKET', NULL, '市场推广部门'),
+('人力资源部', 'HR', NULL, '人力资源管理部门');
+
+-- ========== 初始化异常工时指标 ==========
+INSERT INTO exceptional_hours_indicators (indicator_name, indicator_type, threshold, description)
+VALUES
+('周工时超60小时', 'weekly_hours', 60, '连续7天内工作总时长超过60小时'),
+('连续工作6天以上', 'consecutive_days', 6, '连续工作天数超过6天');
+
+-- ========== 初始化加班数据 ==========
+INSERT INTO overtime_records (emp_id, work_date, actual_hours, regular_hours, overtime_hours)
+VALUES
+-- 员工 1001：连续工作7天，周工时超过60小时
+(1001, '2025-01-06', 10, 8, 2),
+(1001, '2025-01-07', 10, 8, 2),
+(1001, '2025-01-08', 10, 8, 2),
+(1001, '2025-01-09', 10, 8, 2),
+(1001, '2025-01-10', 10, 8, 2),
+(1001, '2025-01-11', 10, 8, 2),
+(1001, '2025-01-12', 10, 8, 2),
+
+-- 员工 1002：正常工作
+(1002, '2025-01-06', 8, 8, 0),
+(1002, '2025-01-07', 8, 8, 0),
+(1002, '2025-01-08', 8, 8, 0),
+(1002, '2025-01-09', 8, 8, 0),
+(1002, '2025-01-10', 8, 8, 0),
+(1002, '2025-01-11', 0, 8, 0),
+(1002, '2025-01-12', 8, 8, 0);
+
+-- ========== 初始化异常工时记录 ==========
+INSERT INTO exceptional_hours_records (emp_id, org_id, indicator_id, indicator_name, indicator_type, actual_value, threshold, period_start, period_end, status)
+VALUES
+-- 员工 1001（技术部）：周工时70小时，超过60小时阈值
+(1001, 1, 1, '周工时超60小时', 'weekly_hours', 70, 60, '2025-01-06', '2025-01-12', 'pending'),
+-- 员工 1001（技术部）：连续工作7天，超过6天阈值
+(1001, 1, 2, '连续工作6天以上', 'consecutive_days', 7, 6, '2025-01-06', '2025-01-12', 'pending');

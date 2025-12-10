@@ -49,3 +49,128 @@ export const fetchAccessRecordsByEmployee = async (employeeId) => {
     throw error;
   }
 };
+
+// 缺勤记录相关API
+export const fetchAbsenceRecords = async () => {
+  try {
+    const response = await axiosInstance.get('/absence-records');
+    return response.data;
+  } catch (error) {
+    console.error('Error fetching absence records:', error);
+    throw error;
+  }
+};
+
+export const submitAbsenceReason = async (recordId, reasonData) => {
+  try {
+    const response = await axiosInstance.post(`/absence-records/${recordId}/reason`, reasonData);
+    return response.data;
+  } catch (error) {
+    console.error(`Error submitting absence reason for record ${recordId}:`, error);
+    throw error;
+  }
+};
+
+export const updateAbsenceFlag = async (recordId, flagValue) => {
+  try {
+    const response = await axiosInstance.put(`/absence-records/${recordId}/flag`, { flag: flagValue });
+    return response.data;
+  } catch (error) {
+    console.error(`Error updating absence flag for record ${recordId}:`, error);
+    throw error;
+  }
+};
+
+// 加班记录相关API
+export const fetchOvertimeRecords = async () => {
+  try {
+    const response = await axiosInstance.get('/overtime-records');
+    return response.data;
+  } catch (error) {
+    console.error('Error fetching overtime records:', error);
+    throw error;
+  }
+};
+
+// 异常工时指标相关API
+export const fetchExceptionalHoursIndicators = async () => {
+  try {
+    const response = await axiosInstance.get('/exceptional-hours/indicators');
+    return response.data;
+  } catch (error) {
+    console.error('Error fetching exceptional hours indicators:', error);
+    throw error;
+  }
+};
+
+// 异常工时记录相关API
+export const fetchExceptionalHoursRecords = async () => {
+  try {
+    const response = await axiosInstance.get('/exceptional-hours/records');
+    return response.data;
+  } catch (error) {
+    console.error('Error fetching exceptional hours records:', error);
+    throw error;
+  }
+};
+
+export const fetchExceptionalHoursRecordsByStatus = async (status) => {
+  try {
+    const response = await axiosInstance.get(`/exceptional-hours/records/status/${status}`);
+    return response.data;
+  } catch (error) {
+    console.error(`Error fetching exceptional hours records by status ${status}:`, error);
+    throw error;
+  }
+};
+
+export const submitExceptionalHoursReason = async (recordId, reasonData) => {
+  try {
+    const response = await axiosInstance.post(`/exceptional-hours/records/${recordId}/reason`, reasonData);
+    return response.data;
+  } catch (error) {
+    console.error(`Error submitting exceptional hours reason for record ${recordId}:`, error);
+    throw error;
+  }
+};
+
+export const approveExceptionalHoursRecord = async (recordId, approvedBy) => {
+  try {
+    const response = await axiosInstance.put(`/exceptional-hours/records/${recordId}/approve?approvedBy=${approvedBy}`);
+    return response.data;
+  } catch (error) {
+    console.error(`Error approving exceptional hours record ${recordId}:`, error);
+    throw error;
+  }
+};
+
+// 组织相关API
+export const fetchOrganizations = async () => {
+  try {
+    const response = await axiosInstance.get('/organizations');
+    return response.data;
+  } catch (error) {
+    console.error('Error fetching organizations:', error);
+    throw error;
+  }
+};
+
+export const fetchActiveOrganizations = async () => {
+  try {
+    const response = await axiosInstance.get('/organizations/active');
+    return response.data;
+  } catch (error) {
+    console.error('Error fetching active organizations:', error);
+    throw error;
+  }
+};
+
+export const fetchOrganizationSummary = async () => {
+  try {
+    const response = await axiosInstance.get('/organizations/summary');
+    return response.data;
+  } catch (error) {
+    console.error('Error fetching organization summary:', error);
+    throw error;
+  }
+};
