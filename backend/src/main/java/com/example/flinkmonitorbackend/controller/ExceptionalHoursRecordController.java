@@ -30,40 +30,68 @@ public class ExceptionalHoursRecordController {
     private ExceptionalHoursRecordService exceptionalHoursRecordService;
 
     @GetMapping
-    public List<ExceptionalHoursRecord> findAll() {
-        return exceptionalHoursRecordService.findAll();
+    public ResponseEntity<List<ExceptionalHoursRecord>> findAll() {
+        try {
+            return ResponseEntity.ok(exceptionalHoursRecordService.findAll());
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(null);
+        }
     }
 
     @GetMapping("/status/{status}")
-    public List<ExceptionalHoursRecord> findByStatus(@PathVariable String status) {
-        return exceptionalHoursRecordService.findByStatus(status);
+    public ResponseEntity<List<ExceptionalHoursRecord>> findByStatus(@PathVariable String status) {
+        try {
+            return ResponseEntity.ok(exceptionalHoursRecordService.findByStatus(status));
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(null);
+        }
     }
 
     @GetMapping("/employee/{empId}")
-    public List<ExceptionalHoursRecord> findByEmployeeId(@PathVariable Long empId) {
-        return exceptionalHoursRecordService.findByEmpId(empId);
+    public ResponseEntity<List<ExceptionalHoursRecord>> findByEmployeeId(@PathVariable Long empId) {
+        try {
+            return ResponseEntity.ok(exceptionalHoursRecordService.findByEmpId(empId));
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(null);
+        }
     }
 
     @GetMapping("/indicator-type/{indicatorType}")
-    public List<ExceptionalHoursRecord> findByIndicatorType(@PathVariable String indicatorType) {
-        return exceptionalHoursRecordService.findByIndicatorType(indicatorType);
+    public ResponseEntity<List<ExceptionalHoursRecord>> findByIndicatorType(@PathVariable String indicatorType) {
+        try {
+            return ResponseEntity.ok(exceptionalHoursRecordService.findByIndicatorType(indicatorType));
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(null);
+        }
     }
 
     @PostMapping("/{recordId}/reason")
-    public ExceptionalHoursRecord submitReason(@PathVariable Long recordId, @RequestBody Map<String, String> reasonData) {
-        exceptionalHoursRecordService.submitReason(
-                recordId,
-                reasonData.get("reason"),
-                reasonData.get("image_url"),
-                reasonData.get("preventive_measures")
-        );
-        return exceptionalHoursRecordService.findById(recordId);
+    public ResponseEntity<?> submitReason(@PathVariable Long recordId, @RequestBody Map<String, String> reasonData) {
+        try {
+            exceptionalHoursRecordService.submitReason(
+                    recordId,
+                    reasonData.get("reason"),
+                    reasonData.get("image_url"),
+                    reasonData.get("preventive_measures")
+            );
+            return ResponseEntity.ok(exceptionalHoursRecordService.findById(recordId));
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.badRequest().body("Error: " + e.getMessage());
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body("Error submitting reason: " + e.getMessage());
+        }
     }
 
     @PutMapping("/{recordId}/approve")
-    public ExceptionalHoursRecord approveRecord(@PathVariable Long recordId, @RequestParam String approvedBy) {
-        exceptionalHoursRecordService.approveRecord(recordId, approvedBy);
-        return exceptionalHoursRecordService.findById(recordId);
+    public ResponseEntity<?> approveRecord(@PathVariable Long recordId, @RequestParam String approvedBy) {
+        try {
+            exceptionalHoursRecordService.approveRecord(recordId, approvedBy);
+            return ResponseEntity.ok(exceptionalHoursRecordService.findById(recordId));
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.badRequest().body("Error: " + e.getMessage());
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body("Error approving record: " + e.getMessage());
+        }
     }
 
     @GetMapping("/export/excel")

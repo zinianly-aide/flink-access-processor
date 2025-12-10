@@ -46,23 +46,39 @@ public class ExceptionalHoursRecordServiceImpl implements ExceptionalHoursRecord
     @Override
     public void submitReason(Long recordId, String reason, String imageUrl, String preventiveMeasures) {
         ExceptionalHoursRecord record = exceptionalHoursRecordMapper.findById(recordId);
-        if (record != null) {
-            record.setReason(reason);
-            record.setImageUrl(imageUrl);
-            record.setPreventiveMeasures(preventiveMeasures);
-            record.setStatus("processed");
-            exceptionalHoursRecordMapper.update(record);
+        if (record == null) {
+            throw new IllegalArgumentException("Exceptional hours record not found: " + recordId);
         }
+        
+        // 验证状态，只有待处理的记录才能被处理
+        if (!"pending".equals(record.getStatus())) {
+            throw new IllegalArgumentException("Only pending records can be processed: " + recordId);
+        }
+        
+        record.setReason(reason);
+        record.setImageUrl(imageUrl);
+        record.setPreventiveMeasures(preventiveMeasures);
+        record.setStatus("processed");
+        record.setUpdatedAt(new Date());
+        exceptionalHoursRecordMapper.update(record);
     }
 
     @Override
     public void approveRecord(Long recordId, String approvedBy) {
         ExceptionalHoursRecord record = exceptionalHoursRecordMapper.findById(recordId);
-        if (record != null) {
-            record.setStatus("approved");
-            record.setApprovedBy(approvedBy);
-            record.setApprovedAt(new Date());
-            exceptionalHoursRecordMapper.update(record);
+        if (record == null) {
+            throw new IllegalArgumentException("Exceptional hours record not found: " + recordId);
         }
+        
+        // 验证状态，只有已处理的记录才能被批准
+        if (!"processed".equals(record.getStatus())) {
+            throw new IllegalArgumentException("Only processed records can be approved: " + recordId);
+        }
+        
+        record.setStatus("approved");
+        record.setApprovedBy(approvedBy);
+        record.setApprovedAt(new Date());
+        record.setUpdatedAt(new Date());
+        exceptionalHoursRecordMapper.update(record);
     }
 }

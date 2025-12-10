@@ -27,7 +27,14 @@ public class OrganizationServiceImpl implements OrganizationService {
 
     @Override
     public Organization findById(Long id) {
-        return organizationMapper.findById(id);
+        if (id == null) {
+            throw new IllegalArgumentException("Organization ID cannot be null");
+        }
+        Organization organization = organizationMapper.findById(id);
+        if (organization == null) {
+            throw new IllegalArgumentException("Organization not found: " + id);
+        }
+        return organization;
     }
 
     @Override

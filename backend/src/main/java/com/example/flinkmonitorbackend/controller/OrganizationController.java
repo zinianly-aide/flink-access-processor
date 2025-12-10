@@ -3,6 +3,8 @@ package com.example.flinkmonitorbackend.controller;
 import com.example.flinkmonitorbackend.entity.Organization;
 import com.example.flinkmonitorbackend.service.OrganizationService;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.CrossOrigin;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -20,17 +22,29 @@ public class OrganizationController {
     private OrganizationService organizationService;
 
     @GetMapping
-    public List<Organization> getAllOrganizations() {
-        return organizationService.findAll();
+    public ResponseEntity<List<Organization>> getAllOrganizations() {
+        try {
+            return ResponseEntity.ok(organizationService.findAll());
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(null);
+        }
     }
 
     @GetMapping("/active")
-    public List<Organization> getActiveOrganizations() {
-        return organizationService.findActiveOrganizations();
+    public ResponseEntity<List<Organization>> getActiveOrganizations() {
+        try {
+            return ResponseEntity.ok(organizationService.findActiveOrganizations());
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(null);
+        }
     }
 
     @GetMapping("/summary")
-    public List<Map<String, Object>> getOrgExceptionalHoursSummary() {
-        return organizationService.getOrgExceptionalHoursSummary();
+    public ResponseEntity<List<Map<String, Object>>> getOrgExceptionalHoursSummary() {
+        try {
+            return ResponseEntity.ok(organizationService.getOrgExceptionalHoursSummary());
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(null);
+        }
     }
 }
