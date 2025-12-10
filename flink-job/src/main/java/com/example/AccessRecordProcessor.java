@@ -96,14 +96,14 @@ public class AccessRecordProcessor {
             )
         """);
 
-                tableEnv.executeSql("""
-            -- 排班表（a）
-CREATE TABLE schedule_a (
-    shift_id    BIGINT,           -- 排班记录ID
-    emp_id      BIGINT,
-    start_time  TIMESTAMP(3),
-    end_time    TIMESTAMP(3)
-                 ) WITH (
+        // 注册排班表（a）
+        tableEnv.executeSql("""
+            CREATE TABLE schedule_a (
+                shift_id    BIGINT,           -- 排班记录ID
+                emp_id      BIGINT,
+                start_time  TIMESTAMP(3),
+                end_time    TIMESTAMP(3)
+            ) WITH (
                 'connector' = 'jdbc',
                 'url' = 'jdbc:mysql://mysql:3306/access_db?useSSL=false&allowPublicKeyRetrieval=true',
                 'username' = 'root',
@@ -112,12 +112,13 @@ CREATE TABLE schedule_a (
             )
         """);
 
-                tableEnv.executeSql("""
+        // 注册门禁表（b）
+        tableEnv.executeSql("""
             CREATE TABLE gate_b (
-    emp_id      BIGINT,
-    start_time  TIMESTAMP(3),     -- 在场开始
-    end_time    TIMESTAMP(3)
-) WITH (
+                emp_id      BIGINT,
+                start_time  TIMESTAMP(3),     -- 在场开始
+                end_time    TIMESTAMP(3)     -- 在场结束
+            ) WITH (
                 'connector' = 'jdbc',
                 'url' = 'jdbc:mysql://mysql:3306/access_db?useSSL=false&allowPublicKeyRetrieval=true',
                 'username' = 'root',
@@ -126,13 +127,13 @@ CREATE TABLE schedule_a (
             )
         """);
 
-                tableEnv.executeSql("""
-            -- 请假表（c）
-CREATE TABLE leave_c (
-    emp_id      BIGINT,
-    start_time  TIMESTAMP(3),
-    end_time    TIMESTAMP(3)
-) WITH (
+        // 注册请假表（c）
+        tableEnv.executeSql("""
+            CREATE TABLE leave_c (
+                emp_id      BIGINT,
+                start_time  TIMESTAMP(3),     -- 请假开始
+                end_time    TIMESTAMP(3)     -- 请假结束
+            ) WITH (
                 'connector' = 'jdbc',
                 'url' = 'jdbc:mysql://mysql:3306/access_db?useSSL=false&allowPublicKeyRetrieval=true',
                 'username' = 'root',
@@ -141,13 +142,13 @@ CREATE TABLE leave_c (
             )
         """);
 
-                tableEnv.executeSql("""
-            -- 出差表（d）
-CREATE TABLE trip_d (
-    emp_id      BIGINT,
-    start_time  TIMESTAMP(3),
-    end_time    TIMESTAMP(3)
-) WITH (
+        // 注册出差表（d）
+        tableEnv.executeSql("""
+            CREATE TABLE trip_d (
+                emp_id      BIGINT,
+                start_time  TIMESTAMP(3),     -- 出差开始
+                end_time    TIMESTAMP(3)     -- 出差结束
+            ) WITH (
                 'connector' = 'jdbc',
                 'url' = 'jdbc:mysql://mysql:3306/access_db?useSSL=false&allowPublicKeyRetrieval=true',
                 'username' = 'root',
@@ -156,8 +157,27 @@ CREATE TABLE trip_d (
             )
         """);
 
+        // 创建hrbp_absence_result结果表
+        tableEnv.executeSql("""
+            CREATE TABLE hrbp_absence_result (
+                emp_id BIGINT,
+                shift_id BIGINT,
+                gap_start TIMESTAMP(3),
+                gap_end TIMESTAMP(3),
+                gap_minutes INT,
+                calc_date DATE
+            ) WITH (
+                'connector' = 'jdbc',
+                'url' = 'jdbc:mysql://mysql:3306/access_db?useSSL=false&allowPublicKeyRetrieval=true',
+                'username' = 'root',
+                'password' = 'root_password',
+                'table-name' = 'hrbp_absence_result'
+            )
+        """);
+
         // 处理逻辑1：计算停留时间
         tableEnv.executeSql("""
+            INSERT INTO hrbp_absence_result
             WITH
 -- 1) 排班基表
 work_slot AS (
@@ -364,13 +384,13 @@ long_gaps AS (
 
 -- 7) 最终结果：排班内 未请假 且 门禁外停留 > 30 分钟，且已排除出差的缺勤
 SELECT
-    shift_id,
     emp_id,
+    shift_id,
     gap_start,
     gap_end,
-    gap_minutes
-FROM long_gaps
-ORDER BY emp_id, gap_start;
+    gap_minutes,
+    CAST(gap_start AS DATE) AS calc_date
+FROM long_gaps;
 
         """);
 

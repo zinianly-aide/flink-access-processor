@@ -90,14 +90,8 @@ INSERT INTO travel_records (employee_id, travel_date, reason) VALUES
 ('EMP003', '2024-01-01', '培训');
 
 
--- =========================================
--- 初始化库：hrbp_attendance
--- =========================================
-CREATE DATABASE IF NOT EXISTS hrbp_attendance
-  DEFAULT CHARACTER SET utf8mb4
-  DEFAULT COLLATE utf8mb4_general_ci;
-
-USE hrbp_attendance;
+-- 继续使用access_db数据库
+USE access_db;
 
 -- =========================================
 -- 1. 排班表 hrbp_schedule_shift
