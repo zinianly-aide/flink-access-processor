@@ -174,3 +174,44 @@ export const fetchOrganizationSummary = async () => {
     throw error;
   }
 };
+
+// 请假记录相关API
+export const fetchLeaveRecords = async () => {
+  try {
+    const response = await axiosInstance.get('/leave-records');
+    return response.data;
+  } catch (error) {
+    console.error('Error fetching leave records:', error);
+    throw error;
+  }
+};
+
+export const fetchLeaveRecordsByEmployee = async (employeeId) => {
+  try {
+    const response = await axiosInstance.get(`/leave-records/employee/${employeeId}`);
+    return response.data;
+  } catch (error) {
+    console.error(`Error fetching leave records for employee ${employeeId}:`, error);
+    throw error;
+  }
+};
+
+export const fetchDeptLeaveSummary = async () => {
+  try {
+    const response = await axiosInstance.get('/leave-records/summary/dept');
+    return response.data;
+  } catch (error) {
+    console.error('Error fetching department leave summary:', error);
+    throw error;
+  }
+};
+
+export const fetchDeptNetOvertimeSummary = async () => {
+  try {
+    const response = await axiosInstance.get('/leave-records/summary/net-overtime');
+    return response.data;
+  } catch (error) {
+    console.error('Error fetching department net overtime summary:', error);
+    throw error;
+  }
+};

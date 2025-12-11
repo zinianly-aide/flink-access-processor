@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { Table, Card, Modal, Form, Input, Button, message, Upload, Switch, Space, Select } from 'antd';
-import { UploadOutlined, EditOutlined, CheckOutlined, CloseOutlined, DownloadOutlined } from '@ant-design/icons';
+import { Table, Card, Modal, Form, Input, Button, message, Upload, Switch, Space, Select, Checkbox } from 'antd';
+import { UploadOutlined, EditOutlined, CheckOutlined, CloseOutlined, DownloadOutlined, PlusOutlined } from '@ant-design/icons';
 import {
   fetchExceptionalHoursRecords,
   submitExceptionalHoursReason,
@@ -14,10 +14,14 @@ const ExceptionalHours = () => {
   const [exceptionalRecords, setExceptionalRecords] = useState([]);
   const [loading, setLoading] = useState(true);
   const [isModalVisible, setIsModalVisible] = useState(false);
+  const [isBatchModalVisible, setIsBatchModalVisible] = useState(false);
   const [selectedRecord, setSelectedRecord] = useState(null);
+  const [selectedRecords, setSelectedRecords] = useState([]);
   const [form] = Form.useForm();
+  const [batchForm] = Form.useForm();
   const [updateLoading, setUpdateLoading] = useState(false);
   const [approveLoading, setApproveLoading] = useState(false);
+  const [batchLoading, setBatchLoading] = useState(false);
   const [statusFilter, setStatusFilter] = useState('all');
 
   // 获取异常工时记录
@@ -101,6 +105,87 @@ const ExceptionalHours = () => {
     // 这里可以添加根据状态过滤数据的逻辑
   };
 
+  // 处理批量选择
+  const handleBatchSelect = (selectedRowKeys, selectedRows) => {
+    setSelectedRecords(selectedRows);
+  };
+
+  // 打开批量提交原因模态框
+  const showBatchReasonModal = () => {
+    if (selectedRecords.length === 0) {
+      message.warning('请先选择要处理的记录');
+      return;
+    }
+    setIsBatchModalVisible(true);
+    batchForm.resetFields();
+  };
+
+  // 关闭批量模态框
+  const handleBatchCancel = () => {
+    setIsBatchModalVisible(false);
+    batchForm.resetFields();
+  };
+
+  // 批量提交异常工时原因
+  const handleBatchSubmitReason = async () => {
+    try {
+      const values = await batchForm.validateFields();
+      setBatchLoading(true);
+      
+      // 处理图片上传，这里简化处理，实际应该上传到服务器获取URL
+      const reasonData = {
+        reason: values.reason,
+        image_url: values.image ? values.image.fileList[0]?.originFileObj?.name || null : null,
+        preventive_measures: values.preventive_measures
+      };
+      
+      // 批量提交原因
+      for (const record of selectedRecords) {
+        await submitExceptionalHoursReason(record.id, reasonData);
+      }
+      
+      message.success(`成功处理 ${selectedRecords.length} 条记录`);
+      handleBatchCancel();
+      
+      // 刷新数据
+      const data = await fetchExceptionalHoursRecords();
+      setExceptionalRecords(data);
+      setSelectedRecords([]);
+    } catch (error) {
+      message.error('批量处理失败');
+    } finally {
+      setBatchLoading(false);
+    }
+  };
+
+  // 批量审批异常工时记录
+  const handleBatchApprove = async (approved) => {
+    if (selectedRecords.length === 0) {
+      message.warning('请先选择要审批的记录');
+      return;
+    }
+    
+    try {
+      setBatchLoading(true);
+      
+      // 批量审批
+      for (const record of selectedRecords) {
+        await approveExceptionalHoursRecord(record.id, 'HR');
+      }
+      
+      message.success(`成功审批 ${selectedRecords.length} 条记录`);
+      
+      // 刷新数据
+      const data = await fetchExceptionalHoursRecords();
+      setExceptionalRecords(data);
+      setSelectedRecords([]);
+    } catch (error) {
+      message.error('批量审批失败');
+    } finally {
+      setBatchLoading(false);
+    }
+  };
+
   // 导出Excel功能
   const exportToExcel = async () => {
     try {
@@ -137,6 +222,36 @@ const ExceptionalHours = () => {
 
   // 异常工时记录表列配置
   const exceptionalColumns = [
+    {
+      title: (
+        <Checkbox
+          indeterminate={selectedRecords.length > 0 && selectedRecords.length < exceptionalRecords.length}
+          checked={selectedRecords.length === exceptionalRecords.length}
+          onChange={(e) => {
+            if (e.target.checked) {
+              setSelectedRecords(exceptionalRecords);
+            } else {
+              setSelectedRecords([]);
+            }
+          }}
+        />
+      ),
+      dataIndex: 'id',
+      key: 'id',
+      width: 60,
+      render: (_, record) => (
+        <Checkbox
+          checked={selectedRecords.some(item => item.id === record.id)}
+          onChange={(e) => {
+            if (e.target.checked) {
+              setSelectedRecords([...selectedRecords, record]);
+            } else {
+              setSelectedRecords(selectedRecords.filter(item => item.id !== record.id));
+            }
+          }}
+        />
+      ),
+    },
     {
       title: '员工ID',
       dataIndex: 'emp_id',
@@ -259,6 +374,14 @@ const ExceptionalHours = () => {
           </Select>
           <Button 
             type="primary" 
+            onClick={showBatchReasonModal}
+            icon={<PlusOutlined />}
+            disabled={selectedRecords.length === 0}
+          >
+            批量提交原因
+          </Button>
+          <Button 
+            type="primary" 
             onClick={exportToExcel}
             icon={<DownloadOutlined />}
           >
@@ -278,6 +401,10 @@ const ExceptionalHours = () => {
           showTotal: (total) => `共 ${total} 条记录`,
         }}
         scroll={{ x: 1000 }}
+        rowSelection={{
+          selectedRowKeys: selectedRecords.map(record => record.id),
+          onChange: handleBatchSelect,
+        }}
       />
 
       <Modal
@@ -303,6 +430,64 @@ const ExceptionalHours = () => {
           form={form}
           layout="vertical"
           initialValues={{}}
+        >
+          <Form.Item
+            name="reason"
+            label="异常原因"
+            rules={[{ required: true, message: '请输入异常原因' }]}
+          >
+            <TextArea rows={4} placeholder="请输入异常原因" />
+          </Form.Item>
+
+          <Form.Item
+            name="image"
+            label="图片说明"
+          >
+            <Upload
+              name="image"
+              listType="picture"
+              beforeUpload={() => false}
+              maxCount={1}
+            >
+              <Button icon={<UploadOutlined />}>上传图片</Button>
+            </Upload>
+            <p className="ant-form-text" style={{ marginTop: 8 }}>
+              支持JPG、PNG格式，不超过5MB
+            </p>
+          </Form.Item>
+
+          <Form.Item
+            name="preventive_measures"
+            label="防范措施"
+            rules={[{ required: true, message: '请输入后续防范措施' }]}
+          >
+            <TextArea rows={3} placeholder="请输入后续防范措施" />
+          </Form.Item>
+        </Form>
+      </Modal>
+
+      <Modal
+        title="批量提交异常工时原因"
+        open={isBatchModalVisible}
+        onCancel={handleBatchCancel}
+        footer={[
+          <Button key="back" onClick={handleBatchCancel}>
+            取消
+          </Button>,
+          <Button 
+            key="submit" 
+            type="primary" 
+            onClick={handleBatchSubmitReason}
+            loading={batchLoading}
+          >
+            批量提交
+          </Button>,
+        ]}
+        width={600}
+      >
+        <Form
+          form={batchForm}
+          layout="vertical"
         >
           <Form.Item
             name="reason"

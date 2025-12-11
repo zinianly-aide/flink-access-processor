@@ -23,6 +23,6 @@
         FROM exceptional_hours_records e
         JOIN organizations o ON e.org_id = o.id
         GROUP BY o.id, o.org_name, o.org_code
-        ORDER BY total_records DESC
+        ORDER BY avg_exceed_hours DESC
     </select>
 </mapper>

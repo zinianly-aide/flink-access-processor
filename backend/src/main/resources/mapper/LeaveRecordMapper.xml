@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.example.flinkmonitorbackend.mapper.LeaveRecordMapper">
+    <select id="findAll" resultType="com.example.flinkmonitorbackend.entity.LeaveRecord">
+        SELECT * FROM hrbp_leave_record ORDER BY id ASC
+    </select>
+    
+    <select id="findByEmpId" parameterType="java.lang.Long" resultType="com.example.flinkmonitorbackend.entity.LeaveRecord">
+        SELECT * FROM hrbp_leave_record WHERE emp_id = #{empId} ORDER BY start_time DESC
+    </select>
+    
+    <select id="findByDateRange" resultType="com.example.flinkmonitorbackend.entity.LeaveRecord">
+        SELECT * FROM hrbp_leave_record WHERE start_time &gt;= #{startDate} AND end_time &lt;= #{endDate} ORDER BY start_time ASC
+    </select>
+    
+    <select id="findByOrgId" parameterType="java.lang.Long" resultType="com.example.flinkmonitorbackend.entity.LeaveRecord">
+        SELECT * FROM hrbp_leave_record WHERE org_id = #{orgId} ORDER BY start_time DESC
+    </select>
+    
+    <!-- 部门请假汇总查询 -->
+    <select id="getDeptLeaveSummary" resultType="map">
+        SELECT o.id AS org_id, o.org_name, o.org_code, COUNT(l.id) AS total_leave_records, SUM(l.leave_hours) AS total_leave_hours, AVG(l.leave_hours) AS avg_leave_hours FROM hrbp_leave_record l JOIN organizations o ON l.org_id = o.id GROUP BY o.id, o.org_name, o.org_code ORDER BY total_leave_hours DESC
+    </select>
+    
+    <!-- 部门净加班汇总查询（加班小时数 - 请假小时数） -->
+    <select id="getDeptNetOvertimeSummary" resultType="map">
+        SELECT o.id AS org_id, o.org_name, o.org_code, COALESCE(ot.overtime_hours, 0) AS total_overtime_hours, COALESCE(l.leave_hours, 0) AS total_leave_hours, (COALESCE(ot.overtime_hours, 0) - COALESCE(l.leave_hours, 0)) AS net_overtime_hours FROM organizations o LEFT JOIN (SELECT org_id, SUM(overtime_hours) AS overtime_hours FROM overtime_records GROUP BY org_id) ot ON o.id = ot.org_id LEFT JOIN (SELECT org_id, SUM(leave_hours) AS leave_hours FROM hrbp_leave_record GROUP BY org_id) l ON o.id = l.org_id ORDER BY net_overtime_hours DESC
+    </select>
+</mapper>

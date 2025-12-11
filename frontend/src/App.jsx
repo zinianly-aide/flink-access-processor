@@ -6,6 +6,7 @@ import ConsecutiveWorkDays from './components/ConsecutiveWorkDays'
 import OvertimeRecords from './components/OvertimeRecords'
 import ExceptionalHours from './components/ExceptionalHours'
 import OrganizationSummary from './components/OrganizationSummary'
+import DepartmentStatistics from './components/DepartmentStatistics'
 
 function App() {
   return (
@@ -13,6 +14,7 @@ function App() {
       <h1 className="app-title">Flink Access Records Analysis</h1>
       <div className="components-container">
         <OrganizationSummary />
+        <DepartmentStatistics />
         <AbsenceRecords />
         <OvertimeRecords />
         <ExceptionalHours />

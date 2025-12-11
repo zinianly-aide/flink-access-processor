@@ -95,7 +95,7 @@ const OrganizationSummary = () => {
     })),
     xField: 'org',
     yField: ['平均超时小时数', '总记录数'],
-    seriesField: 'type',
+    seriesField: 'org',
     barStyle: {
       radius: [4, 4, 0, 0],
     },
@@ -110,6 +110,7 @@ const OrganizationSummary = () => {
         };
       },
     },
+    height: 400,
   };
 
   // 雷达图配置
@@ -121,8 +122,8 @@ const OrganizationSummary = () => {
       已批准: item.approved_count,
       平均超时小时数: item.avg_exceed_hours,
     })),
-    xField: 'org',
-    yField: ['待处理', '已处理', '已批准', '平均超时小时数'],
+    xField: 'indicator',
+    yField: 'value',
     seriesField: 'org',
     legend: {
       position: 'top',
@@ -134,6 +135,14 @@ const OrganizationSummary = () => {
           value: datum.value,
         };
       },
+    },
+    height: 400,
+    // 数据转换，将对象转换为雷达图需要的格式
+    transform: {
+      type: 'fold',
+      fields: ['待处理', '已处理', '已批准', '平均超时小时数'],
+      key: 'indicator',
+      value: 'value',
     },
   };
 
