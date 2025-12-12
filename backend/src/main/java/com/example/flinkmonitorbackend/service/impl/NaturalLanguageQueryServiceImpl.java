@@ -2,6 +2,7 @@ package com.example.flinkmonitorbackend.service.impl;
 
 import com.example.flinkmonitorbackend.service.DatabaseMetadataService;
 import com.example.flinkmonitorbackend.service.NaturalLanguageQueryService;
+import com.example.flinkmonitorbackend.service.OllamaService;
 import com.example.flinkmonitorbackend.utils.SqlExecutor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -24,6 +25,9 @@ public class NaturalLanguageQueryServiceImpl implements NaturalLanguageQueryServ
     
     @Autowired
     private DatabaseMetadataService databaseMetadataService;
+    
+    @Autowired
+    private OllamaService ollamaService;
 
     private static final Map<String, String> TABLE_NAME_MAPPINGS = new HashMap<>();
     private static final Map<String, String> COLUMN_NAME_MAPPINGS = new HashMap<>();
@@ -81,6 +85,33 @@ public class NaturalLanguageQueryServiceImpl implements NaturalLanguageQueryServ
     @Override
     public String translateToSql(String naturalLanguageQuery) {
         String normalizedQuery = naturalLanguageQuery.toLowerCase().trim();
+        
+        // 1. 先尝试匹配模板，提高性能
+        String templateSql = matchTemplateQuery(normalizedQuery);
+        if (templateSql != null) {
+            return templateSql;
+        }
+        
+        // 2. 尝试基于表名映射生成SQL
+        String mappingSql = generateSqlFromTableMapping(normalizedQuery);
+        if (mappingSql != null) {
+            return mappingSql;
+        }
+        
+        // 3. 尝试正则表达式匹配
+        String regexSql = generateSqlFromRegex(normalizedQuery);
+        if (regexSql != null) {
+            return regexSql;
+        }
+        
+        // 4. 最后使用Ollama大模型生成SQL
+        return generateSqlFromOllama(normalizedQuery);
+    }
+    
+    /**
+     * 匹配模板查询
+     */
+    private String matchTemplateQuery(String normalizedQuery) {
         Map<String, String> sqlTemplates = new HashMap<>();
 
         // 添加支持的查询模板
@@ -114,18 +145,61 @@ public class NaturalLanguageQueryServiceImpl implements NaturalLanguageQueryServ
                 return entry.getValue();
             }
         }
-
+        
+        return null;
+    }
+    
+    /**
+     * 根据表名映射生成SQL查询
+     */
+    private String generateSqlFromTableMapping(String query) {
         // 检查是否包含已知的表名
         for (Map.Entry<String, String> mapping : TABLE_NAME_MAPPINGS.entrySet()) {
-            if (normalizedQuery.contains(mapping.getKey())) {
-                return generateSqlFromTableMapping(normalizedQuery, mapping.getKey(), mapping.getValue());
+            if (query.contains(mapping.getKey())) {
+                String actualTableName = mapping.getValue();
+                String sql = "SELECT * FROM " + actualTableName;
+                
+                // 添加简单的过滤条件
+                if (query.contains("状态") || query.contains("status")) {
+                    if (query.contains("待处理") || query.contains("pending")) {
+                        sql += " WHERE status = 'pending'";
+                    }
+                    if (query.contains("已处理") || query.contains("processed")) {
+                        sql += " WHERE status = 'processed'";
+                    }
+                    if (query.contains("已批准") || query.contains("approved")) {
+                        sql += " WHERE status = 'approved'";
+                    }
+                }
+                
+                // 添加排序
+                if (query.contains("排行") || query.contains("排名") || query.contains("order")) {
+                    if (actualTableName.equals("organizations")) {
+                        sql += " ORDER BY org_name ASC";
+                    } else if (actualTableName.equals("hrbp_leave_record")) {
+                        sql += " ORDER BY start_time DESC";
+                    } else if (actualTableName.equals("overtime_records")) {
+                        sql += " ORDER BY work_date DESC";
+                    }
+                }
+                
+                // 添加分页
+                sql += " LIMIT 10";
+                
+                return sql;
             }
         }
         
-        // 支持一些简单的正则表达式匹配
+        return null;
+    }
+    
+    /**
+     * 使用正则表达式生成SQL查询
+     */
+    private String generateSqlFromRegex(String query) {
         // 匹配 "查询[组织/部门]的[指标]" 模式
         Pattern deptPattern = Pattern.compile("查询(.+)的(.+)");
-        Matcher deptMatcher = deptPattern.matcher(normalizedQuery);
+        Matcher deptMatcher = deptPattern.matcher(query);
         if (deptMatcher.find()) {
             String dept = deptMatcher.group(1);
             String metric = deptMatcher.group(2);
@@ -151,7 +225,7 @@ public class NaturalLanguageQueryServiceImpl implements NaturalLanguageQueryServ
 
         // 匹配 "查询[表名]" 模式
         Pattern tablePattern = Pattern.compile("查询(.+)");
-        Matcher tableMatcher = tablePattern.matcher(normalizedQuery);
+        Matcher tableMatcher = tablePattern.matcher(query);
         if (tableMatcher.find()) {
             String tableDesc = tableMatcher.group(1);
             for (Map.Entry<String, String> mapping : TABLE_NAME_MAPPINGS.entrySet()) {
@@ -161,44 +235,29 @@ public class NaturalLanguageQueryServiceImpl implements NaturalLanguageQueryServ
             }
         }
         
-        // 如果没有匹配到任何模板，使用数据库元数据生成更智能的查询
-        return generateSqlFromMetadata(normalizedQuery);
+        return null;
     }
     
     /**
-     * 根据表名映射生成SQL查询
+     * 使用Ollama大模型生成SQL查询
      */
-    private String generateSqlFromTableMapping(String query, String naturalTableName, String actualTableName) {
-        String sql = "SELECT * FROM " + actualTableName;
+    private String generateSqlFromOllama(String query) {
+        // 获取数据库结构描述
+        String databaseStructure = getDatabaseStructure();
         
-        // 添加简单的过滤条件
-        if (query.contains("状态") || query.contains("status")) {
-            if (query.contains("待处理") || query.contains("pending")) {
-                sql += " WHERE status = 'pending'";
-            }
-            if (query.contains("已处理") || query.contains("processed")) {
-                sql += " WHERE status = 'processed'";
-            }
-            if (query.contains("已批准") || query.contains("approved")) {
-                sql += " WHERE status = 'approved'";
-            }
+        // 使用Ollama生成SQL
+        String generatedSql = ollamaService.generateSql(query, databaseStructure);
+        
+        // 清理生成的SQL
+        String cleanedSql = ollamaService.cleanGeneratedSql(generatedSql);
+        
+        // 检查生成的SQL是否安全
+        if (ollamaService.isSqlSafe(cleanedSql)) {
+            return cleanedSql;
+        } else {
+            // 如果生成的SQL不安全，返回一个安全的默认查询
+            return "SELECT id, org_name, org_code, is_active FROM organizations WHERE is_active = 1 LIMIT 10";
         }
-        
-        // 添加排序
-        if (query.contains("排行") || query.contains("排名") || query.contains("order")) {
-            if (actualTableName.equals("organizations")) {
-                sql += " ORDER BY org_name ASC";
-            } else if (actualTableName.equals("hrbp_leave_record")) {
-                sql += " ORDER BY start_time DESC";
-            } else if (actualTableName.equals("overtime_records")) {
-                sql += " ORDER BY work_date DESC";
-            }
-        }
-        
-        // 添加分页
-        sql += " LIMIT 10";
-        
-        return sql;
     }
     
     /**
