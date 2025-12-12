@@ -236,3 +236,54 @@ export const translateToSql = async (query) => {
     throw error;
   }
 };
+
+// 数据库元数据相关API
+export const fetchAllTables = async () => {
+  try {
+    const response = await axiosInstance.get('/database-metadata/tables');
+    return response.data;
+  } catch (error) {
+    console.error('Error fetching all tables:', error);
+    throw error;
+  }
+};
+
+export const fetchTableStructure = async (tableName) => {
+  try {
+    const response = await axiosInstance.get(`/database-metadata/tables/${tableName}`);
+    return response.data;
+  } catch (error) {
+    console.error(`Error fetching table structure for ${tableName}:`, error);
+    throw error;
+  }
+};
+
+export const fetchDatabaseDescription = async () => {
+  try {
+    const response = await axiosInstance.get('/database-metadata/description');
+    return response.data;
+  } catch (error) {
+    console.error('Error fetching database description:', error);
+    throw error;
+  }
+};
+
+export const fetchTableRelationships = async () => {
+  try {
+    const response = await axiosInstance.get('/database-metadata/relationships');
+    return response.data;
+  } catch (error) {
+    console.error('Error fetching table relationships:', error);
+    throw error;
+  }
+};
+
+export const fetchCompleteDatabaseStructure = async () => {
+  try {
+    const response = await axiosInstance.get('/database-metadata/complete');
+    return response.data;
+  } catch (error) {
+    console.error('Error fetching complete database structure:', error);
+    throw error;
+  }
+};

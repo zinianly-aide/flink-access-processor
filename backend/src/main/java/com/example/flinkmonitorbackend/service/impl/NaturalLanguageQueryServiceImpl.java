@@ -1,5 +1,6 @@
 package com.example.flinkmonitorbackend.service.impl;
 
+import com.example.flinkmonitorbackend.service.DatabaseMetadataService;
 import com.example.flinkmonitorbackend.service.NaturalLanguageQueryService;
 import com.example.flinkmonitorbackend.utils.SqlExecutor;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -20,6 +21,39 @@ public class NaturalLanguageQueryServiceImpl implements NaturalLanguageQueryServ
 
     @Autowired
     private SqlExecutor sqlExecutor;
+    
+    @Autowired
+    private DatabaseMetadataService databaseMetadataService;
+
+    private static final Map<String, String> TABLE_NAME_MAPPINGS = new HashMap<>();
+    private static final Map<String, String> COLUMN_NAME_MAPPINGS = new HashMap<>();
+    
+    static {
+        // 初始化表名映射，用于将自然语言中的表名映射到实际表名
+        TABLE_NAME_MAPPINGS.put("部门", "organizations");
+        TABLE_NAME_MAPPINGS.put("组织", "organizations");
+        TABLE_NAME_MAPPINGS.put("员工", "employee");
+        TABLE_NAME_MAPPINGS.put("请假", "hrbp_leave_record");
+        TABLE_NAME_MAPPINGS.put("加班", "overtime_records");
+        TABLE_NAME_MAPPINGS.put("异常工时", "exceptional_hours_records");
+        TABLE_NAME_MAPPINGS.put("门禁", "hrbp_gate_record");
+        TABLE_NAME_MAPPINGS.put("排班", "hrbp_schedule_shift");
+        TABLE_NAME_MAPPINGS.put("出差", "hrbp_trip_record");
+        TABLE_NAME_MAPPINGS.put("连续工作", "consecutive_work_days");
+        
+        // 初始化列名映射，用于将自然语言中的列名映射到实际列名
+        COLUMN_NAME_MAPPINGS.put("部门名称", "org_name");
+        COLUMN_NAME_MAPPINGS.put("部门代码", "org_code");
+        COLUMN_NAME_MAPPINGS.put("员工ID", "emp_id");
+        COLUMN_NAME_MAPPINGS.put("请假小时数", "leave_hours");
+        COLUMN_NAME_MAPPINGS.put("加班小时数", "overtime_hours");
+        COLUMN_NAME_MAPPINGS.put("状态", "status");
+        COLUMN_NAME_MAPPINGS.put("连续工作天数", "consecutive_days");
+        COLUMN_NAME_MAPPINGS.put("工作日期", "work_date");
+        COLUMN_NAME_MAPPINGS.put("总请假小时数", "total_leave_hours");
+        COLUMN_NAME_MAPPINGS.put("总加班小时数", "total_overtime_hours");
+        COLUMN_NAME_MAPPINGS.put("净加班小时数", "net_overtime_hours");
+    }
 
     /**
      * 将自然语言转换为SQL查询并执行
@@ -81,6 +115,13 @@ public class NaturalLanguageQueryServiceImpl implements NaturalLanguageQueryServ
             }
         }
 
+        // 检查是否包含已知的表名
+        for (Map.Entry<String, String> mapping : TABLE_NAME_MAPPINGS.entrySet()) {
+            if (normalizedQuery.contains(mapping.getKey())) {
+                return generateSqlFromTableMapping(normalizedQuery, mapping.getKey(), mapping.getValue());
+            }
+        }
+        
         // 支持一些简单的正则表达式匹配
         // 匹配 "查询[组织/部门]的[指标]" 模式
         Pattern deptPattern = Pattern.compile("查询(.+)的(.+)");
@@ -97,10 +138,120 @@ public class NaturalLanguageQueryServiceImpl implements NaturalLanguageQueryServ
                         (dept.contains("前") ? " LIMIT " + extractNumber(dept) : "")
                 );
             }
+            
+            if (metric.contains("加班")) {
+                return String.format(
+                        "SELECT o.org_name, o.org_code, SUM(ot.overtime_hours) AS total_overtime_hours " +
+                        "FROM overtime_records ot JOIN organizations o ON ot.org_id = o.id " +
+                        "GROUP BY o.id, o.org_name, o.org_code ORDER BY total_overtime_hours DESC" +
+                        (dept.contains("前") ? " LIMIT " + extractNumber(dept) : "")
+                );
+            }
         }
 
-        // 如果没有匹配到任何模板，返回一个示例查询
-        return "SELECT * FROM organizations WHERE is_active = 1 LIMIT 10";
+        // 匹配 "查询[表名]" 模式
+        Pattern tablePattern = Pattern.compile("查询(.+)");
+        Matcher tableMatcher = tablePattern.matcher(normalizedQuery);
+        if (tableMatcher.find()) {
+            String tableDesc = tableMatcher.group(1);
+            for (Map.Entry<String, String> mapping : TABLE_NAME_MAPPINGS.entrySet()) {
+                if (tableDesc.contains(mapping.getKey())) {
+                    return String.format("SELECT * FROM %s LIMIT 10", mapping.getValue());
+                }
+            }
+        }
+        
+        // 如果没有匹配到任何模板，使用数据库元数据生成更智能的查询
+        return generateSqlFromMetadata(normalizedQuery);
+    }
+    
+    /**
+     * 根据表名映射生成SQL查询
+     */
+    private String generateSqlFromTableMapping(String query, String naturalTableName, String actualTableName) {
+        String sql = "SELECT * FROM " + actualTableName;
+        
+        // 添加简单的过滤条件
+        if (query.contains("状态") || query.contains("status")) {
+            if (query.contains("待处理") || query.contains("pending")) {
+                sql += " WHERE status = 'pending'";
+            }
+            if (query.contains("已处理") || query.contains("processed")) {
+                sql += " WHERE status = 'processed'";
+            }
+            if (query.contains("已批准") || query.contains("approved")) {
+                sql += " WHERE status = 'approved'";
+            }
+        }
+        
+        // 添加排序
+        if (query.contains("排行") || query.contains("排名") || query.contains("order")) {
+            if (actualTableName.equals("organizations")) {
+                sql += " ORDER BY org_name ASC";
+            } else if (actualTableName.equals("hrbp_leave_record")) {
+                sql += " ORDER BY start_time DESC";
+            } else if (actualTableName.equals("overtime_records")) {
+                sql += " ORDER BY work_date DESC";
+            }
+        }
+        
+        // 添加分页
+        sql += " LIMIT 10";
+        
+        return sql;
+    }
+    
+    /**
+     * 利用数据库元数据生成SQL查询
+     */
+    private String generateSqlFromMetadata(String query) {
+        // 获取所有表信息
+        List<Map<String, Object>> tables = databaseMetadataService.getAllTables();
+        
+        // 尝试匹配最相关的表
+        String bestMatchTable = tables.stream()
+                .map(table -> (String) table.get("tableName"))
+                .filter(tableName -> {
+                    // 检查表名是否包含查询中的关键字
+                    String normalizedTableName = tableName.toLowerCase();
+                    return query.contains(normalizedTableName) || 
+                           TABLE_NAME_MAPPINGS.entrySet().stream()
+                               .anyMatch(entry -> query.contains(entry.getKey()) && entry.getValue().equals(tableName));
+                })
+                .findFirst()
+                .orElse("organizations");
+        
+        // 生成简单的SELECT查询
+        String sql = String.format("SELECT * FROM %s LIMIT 10", bestMatchTable);
+        
+        // 根据表名添加额外的优化
+        if (bestMatchTable.equals("exceptional_hours_records")) {
+            sql = "SELECT emp_id, org_id, indicator_name, actual_value, threshold, status, period_start, period_end " +
+                  "FROM exceptional_hours_records " +
+                  "ORDER BY created_at DESC LIMIT 10";
+        } else if (bestMatchTable.equals("overtime_records")) {
+            sql = "SELECT emp_id, work_date, actual_hours, regular_hours, overtime_hours " +
+                  "FROM overtime_records " +
+                  "ORDER BY work_date DESC LIMIT 10";
+        } else if (bestMatchTable.equals("hrbp_leave_record")) {
+            sql = "SELECT emp_id, start_time, end_time, leave_type " +
+                  "FROM hrbp_leave_record " +
+                  "ORDER BY start_time DESC LIMIT 10";
+        } else if (bestMatchTable.equals("organizations")) {
+            sql = "SELECT id, org_name, org_code, parent_id, is_active " +
+                  "FROM organizations " +
+                  "ORDER BY org_name ASC LIMIT 10";
+        }
+        
+        return sql;
+    }
+    
+    /**
+     * 获取数据库结构描述，用于大模型理解数据库结构
+     */
+    public String getDatabaseStructure() {
+        return databaseMetadataService.getDatabaseStructureDescription() + "\n" + 
+               databaseMetadataService.getTableRelationships();
     }
 
     /**
