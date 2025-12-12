@@ -12,7 +12,7 @@ import java.util.Map;
  * 自然语言查询API控制器
  */
 @RestController
-@RequestMapping("/api/natural-language-query")
+@RequestMapping("/natural-language-query")
 public class NaturalLanguageQueryController {
 
     @Autowired

@@ -12,7 +12,7 @@ import java.util.Map;
  * 数据库元数据API控制器
  */
 @RestController
-@RequestMapping("/api/database-metadata")
+@RequestMapping("/database-metadata")
 public class DatabaseMetadataController {
 
     @Autowired
