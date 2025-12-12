@@ -215,3 +215,24 @@ export const fetchDeptNetOvertimeSummary = async () => {
     throw error;
   }
 };
+
+// 自然语言查询相关API
+export const executeNaturalLanguageQuery = async (query) => {
+  try {
+    const response = await axiosInstance.post('/natural-language-query/execute', { query });
+    return response.data;
+  } catch (error) {
+    console.error('Error executing natural language query:', error);
+    throw error;
+  }
+};
+
+export const translateToSql = async (query) => {
+  try {
+    const response = await axiosInstance.post('/natural-language-query/translate-to-sql', { query });
+    return response.data;
+  } catch (error) {
+    console.error('Error translating to SQL:', error);
+    throw error;
+  }
+};

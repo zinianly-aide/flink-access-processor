@@ -7,12 +7,14 @@ import OvertimeRecords from './components/OvertimeRecords'
 import ExceptionalHours from './components/ExceptionalHours'
 import OrganizationSummary from './components/OrganizationSummary'
 import DepartmentStatistics from './components/DepartmentStatistics'
+import NaturalLanguageQuery from './components/NaturalLanguageQuery'
 
 function App() {
   return (
     <div className="app-container">
       <h1 className="app-title">Flink Access Records Analysis</h1>
       <div className="components-container">
+        <NaturalLanguageQuery />
         <OrganizationSummary />
         <DepartmentStatistics />
         <AbsenceRecords />
