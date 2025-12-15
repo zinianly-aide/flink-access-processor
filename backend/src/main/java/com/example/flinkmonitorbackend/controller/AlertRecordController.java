@@ -17,7 +17,6 @@ import java.util.List;
 
 @RestController
 @RequestMapping("/alerts")
-@CrossOrigin(origins = "*")
 public class AlertRecordController {
     @Autowired
     private AlertRecordService alertRecordService;

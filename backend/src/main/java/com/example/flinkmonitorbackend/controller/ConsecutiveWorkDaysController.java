@@ -17,7 +17,6 @@ import java.util.List;
 
 @RestController
 @RequestMapping("/consecutive-days")
-@CrossOrigin(origins = "*")
 public class ConsecutiveWorkDaysController {
     @Autowired
     private ConsecutiveWorkDaysService consecutiveWorkDaysService;

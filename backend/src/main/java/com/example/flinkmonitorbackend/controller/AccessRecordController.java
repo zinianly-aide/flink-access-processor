@@ -17,7 +17,6 @@ import java.util.List;
 
 @RestController
 @RequestMapping("/access-records")
-@CrossOrigin(origins = "*")
 public class AccessRecordController {
     @Autowired
     private AccessRecordService accessRecordService;

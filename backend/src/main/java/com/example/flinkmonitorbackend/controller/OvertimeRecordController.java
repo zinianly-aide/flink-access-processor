@@ -20,7 +20,6 @@ import java.util.List;
 
 @RestController
 @RequestMapping("/overtime-records")
-@CrossOrigin(origins = "*")
 public class OvertimeRecordController {
     @Autowired
     private OvertimeRecordService overtimeRecordService;

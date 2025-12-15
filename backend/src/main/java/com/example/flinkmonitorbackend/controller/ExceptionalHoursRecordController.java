@@ -24,7 +24,6 @@ import java.util.Map;
 
 @RestController
 @RequestMapping("/exceptional-hours/records")
-@CrossOrigin(origins = "*")
 public class ExceptionalHoursRecordController {
     @Autowired
     private ExceptionalHoursRecordService exceptionalHoursRecordService;

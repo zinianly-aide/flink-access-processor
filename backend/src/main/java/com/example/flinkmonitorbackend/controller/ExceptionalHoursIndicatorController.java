@@ -16,7 +16,6 @@ import java.util.List;
 
 @RestController
 @RequestMapping("/exceptional-hours/indicators")
-@CrossOrigin(origins = "*")
 public class ExceptionalHoursIndicatorController {
     @Autowired
     private ExceptionalHoursIndicatorService exceptionalHoursIndicatorService;

@@ -17,7 +17,6 @@ import java.util.Map;
 
 @RestController
 @RequestMapping("/leave-records")
-@CrossOrigin(origins = "*")
 public class LeaveRecordController {
     @Autowired
     private LeaveRecordService leaveRecordService;

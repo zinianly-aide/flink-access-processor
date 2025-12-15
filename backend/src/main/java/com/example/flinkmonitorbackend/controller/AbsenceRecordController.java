@@ -17,7 +17,6 @@ import java.util.Map;
 
 @RestController
 @RequestMapping("/absence-records")
-@CrossOrigin(origins = "*")
 public class AbsenceRecordController {
     @Autowired
     private AbsenceRecordService absenceRecordService;

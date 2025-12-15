@@ -15,7 +15,6 @@ import java.util.Map;
 
 @RestController
 @RequestMapping("/organizations")
-@CrossOrigin
 public class OrganizationController {
 
     @Autowired
