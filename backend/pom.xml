@@ -61,6 +61,12 @@
             <artifactId>langchain4j-ollama</artifactId>
             <version>0.30.0</version>
         </dependency>
+        <!-- OpenAI 客户端依赖（兼容 DeepSeek API） -->
+        <dependency>
+            <groupId>dev.langchain4j</groupId>
+            <artifactId>langchain4j-open-ai</artifactId>
+            <version>0.30.0</version>
+        </dependency>
         <!-- 添加JSON处理依赖，用于解析Ollama API响应 -->
         <dependency>
             <groupId>com.fasterxml.jackson.core</groupId>

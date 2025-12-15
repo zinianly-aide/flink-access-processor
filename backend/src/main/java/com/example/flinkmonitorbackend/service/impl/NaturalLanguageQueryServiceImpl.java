@@ -2,7 +2,7 @@ package com.example.flinkmonitorbackend.service.impl;
 
 import com.example.flinkmonitorbackend.service.DatabaseMetadataService;
 import com.example.flinkmonitorbackend.service.NaturalLanguageQueryService;
-import com.example.flinkmonitorbackend.service.OllamaService;
+import com.example.flinkmonitorbackend.service.LlmService;
 import com.example.flinkmonitorbackend.utils.SqlExecutor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -28,7 +28,7 @@ public class NaturalLanguageQueryServiceImpl implements NaturalLanguageQueryServ
     private DatabaseMetadataService databaseMetadataService;
     
     @Autowired
-    private OllamaService ollamaService;
+    private LlmService llmService;
 
     private static final Map<String, String> TABLE_NAME_MAPPINGS = new HashMap<>();
     private static final Map<String, String> COLUMN_NAME_MAPPINGS = new HashMap<>();
@@ -91,7 +91,7 @@ public class NaturalLanguageQueryServiceImpl implements NaturalLanguageQueryServ
         }
         
         // 评估查询结果
-        String evaluation = ollamaService.evaluateSqlResults(naturalLanguageQuery, sql, results);
+        String evaluation = llmService.evaluateSqlResults(naturalLanguageQuery, sql, results);
         
         // 返回包含结果和评估的数据
         Map<String, Object> result = new HashMap<>();
@@ -116,7 +116,7 @@ public class NaturalLanguageQueryServiceImpl implements NaturalLanguageQueryServ
         }
         
         // 评估查询结果
-        String evaluation = ollamaService.evaluateSqlResults(originalQuery, sql, results);
+        String evaluation = llmService.evaluateSqlResults(originalQuery, sql, results);
         
         // 返回包含结果和评估的数据
         Map<String, Object> result = new HashMap<>();
@@ -140,7 +140,7 @@ public class NaturalLanguageQueryServiceImpl implements NaturalLanguageQueryServ
         List<Map<String, Object>> mockResults = new ArrayList<>();
         
         // 评估SQL
-        String evaluation = ollamaService.evaluateSqlResults(naturalLanguageQuery, sql, mockResults);
+        String evaluation = llmService.evaluateSqlResults(naturalLanguageQuery, sql, mockResults);
         
         // 返回包含SQL和评估的数据
         Map<String, Object> result = new HashMap<>();
@@ -162,7 +162,7 @@ public class NaturalLanguageQueryServiceImpl implements NaturalLanguageQueryServ
         String generatedSql = generateSqlFromOllama(normalizedQuery);
         
         // 检查生成的SQL是否安全
-        if (ollamaService.isSqlSafe(generatedSql)) {
+        if (llmService.isSqlSafe(generatedSql)) {
             return generatedSql;
         } else {
             // 如果生成的SQL不安全，返回一个安全的默认查询
@@ -301,20 +301,20 @@ public class NaturalLanguageQueryServiceImpl implements NaturalLanguageQueryServ
     }
     
     /**
-     * 使用Ollama大模型生成SQL查询
+     * 使用LLM大模型生成SQL查询
      */
     private String generateSqlFromOllama(String query) {
         // 获取数据库结构描述
         String databaseStructure = getDatabaseStructure();
         
-        // 使用Ollama生成SQL
-        String generatedSql = ollamaService.generateSql(query, databaseStructure);
+        // 使用LlmService生成SQL，默认使用Ollama
+        String generatedSql = llmService.generateSql(query, databaseStructure);
         
         // 清理生成的SQL
-        String cleanedSql = ollamaService.cleanGeneratedSql(generatedSql);
+        String cleanedSql = llmService.cleanGeneratedSql(generatedSql);
         
         // 检查生成的SQL是否安全
-        if (ollamaService.isSqlSafe(cleanedSql)) {
+        if (llmService.isSqlSafe(cleanedSql)) {
             return cleanedSql;
         } else {
             // 如果生成的SQL不安全，返回一个安全的默认查询
