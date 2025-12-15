@@ -8,6 +8,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.sql.SQLException;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -73,39 +74,100 @@ public class NaturalLanguageQueryServiceImpl implements NaturalLanguageQueryServ
             throw new RuntimeException("SQL查询执行失败: " + e.getMessage(), e);
         }
     }
+    
+    /**
+     * 执行自然语言查询并返回包含评估结果的数据
+     */
+    @Override
+    public Map<String, Object> executeNaturalLanguageQueryWithEvaluation(String naturalLanguageQuery) {
+        // 将自然语言转换为SQL
+        String sql = translateToSql(naturalLanguageQuery);
+        // 执行SQL查询
+        List<Map<String, Object>> results;
+        try {
+            results = sqlExecutor.executeQuery(sql);
+        } catch (SQLException e) {
+            throw new RuntimeException("SQL查询执行失败: " + e.getMessage(), e);
+        }
+        
+        // 评估查询结果
+        String evaluation = ollamaService.evaluateSqlResults(naturalLanguageQuery, sql, results);
+        
+        // 返回包含结果和评估的数据
+        Map<String, Object> result = new HashMap<>();
+        result.put("query", naturalLanguageQuery);
+        result.put("sql", sql);
+        result.put("results", results);
+        result.put("evaluation", evaluation);
+        return result;
+    }
+    
+    /**
+     * 执行指定的SQL查询并返回包含评估结果的数据
+     */
+    @Override
+    public Map<String, Object> executeSqlWithEvaluation(String sql, String originalQuery) {
+        // 执行SQL查询
+        List<Map<String, Object>> results;
+        try {
+            results = sqlExecutor.executeQuery(sql);
+        } catch (SQLException e) {
+            throw new RuntimeException("SQL查询执行失败: " + e.getMessage(), e);
+        }
+        
+        // 评估查询结果
+        String evaluation = ollamaService.evaluateSqlResults(originalQuery, sql, results);
+        
+        // 返回包含结果和评估的数据
+        Map<String, Object> result = new HashMap<>();
+        result.put("query", originalQuery);
+        result.put("sql", sql);
+        result.put("results", results);
+        result.put("evaluation", evaluation);
+        return result;
+    }
+    
+    /**
+     * 将自然语言转换为SQL查询语句并生成评估结果（不执行）
+     */
+    @Override
+    public Map<String, Object> translateToSqlWithEvaluation(String naturalLanguageQuery) {
+        // 将自然语言转换为SQL
+        String sql = translateToSql(naturalLanguageQuery);
+        
+        // 生成SQL评估结果（模拟查询结果进行评估）
+        // 由于SQL未执行，我们使用空结果或模拟数据进行评估
+        List<Map<String, Object>> mockResults = new ArrayList<>();
+        
+        // 评估SQL
+        String evaluation = ollamaService.evaluateSqlResults(naturalLanguageQuery, sql, mockResults);
+        
+        // 返回包含SQL和评估的数据
+        Map<String, Object> result = new HashMap<>();
+        result.put("query", naturalLanguageQuery);
+        result.put("sql", sql);
+        result.put("evaluation", evaluation);
+        return result;
+    }
 
     /**
      * 将自然语言转换为SQL查询语句（不执行）
-     * 支持的查询模式：
-     * 1. 查询所有部门的总请假小时数排行
-     * 2. 计算各部门的净加班小时数
-     * 3. 查询状态为待处理的异常工时记录数量
-     * 4. 找出连续工作天数最多的前5名员工
+     * 主要使用Ollama大模型生成SQL，只在必要时进行安全检查
      */
     @Override
     public String translateToSql(String naturalLanguageQuery) {
         String normalizedQuery = naturalLanguageQuery.toLowerCase().trim();
         
-        // 1. 先尝试匹配模板，提高性能
-        String templateSql = matchTemplateQuery(normalizedQuery);
-        if (templateSql != null) {
-            return templateSql;
-        }
+        // 直接使用Ollama大模型生成SQL，作为主要生成方式
+        String generatedSql = generateSqlFromOllama(normalizedQuery);
         
-        // 2. 尝试基于表名映射生成SQL
-        String mappingSql = generateSqlFromTableMapping(normalizedQuery);
-        if (mappingSql != null) {
-            return mappingSql;
+        // 检查生成的SQL是否安全
+        if (ollamaService.isSqlSafe(generatedSql)) {
+            return generatedSql;
+        } else {
+            // 如果生成的SQL不安全，返回一个安全的默认查询
+            return "SELECT id, org_name, org_code, is_active FROM organizations WHERE is_active = 1 LIMIT 10";
         }
-        
-        // 3. 尝试正则表达式匹配
-        String regexSql = generateSqlFromRegex(normalizedQuery);
-        if (regexSql != null) {
-            return regexSql;
-        }
-        
-        // 4. 最后使用Ollama大模型生成SQL
-        return generateSqlFromOllama(normalizedQuery);
     }
     
     /**

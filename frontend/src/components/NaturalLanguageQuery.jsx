@@ -1,7 +1,7 @@
-import React, { useState, useEffect } from 'react';
-import { Card, Input, Button, Table, Space, message, Tabs, Typography, Tag, Spin } from 'antd';
-import { SearchOutlined, CodeOutlined, PlayCircleOutlined, LoadingOutlined } from '@ant-design/icons';
-import { executeNaturalLanguageQuery, translateToSql } from '../services/api';
+import React, { useState } from 'react';
+import { Card, Input, Button, Table, Space, message, Tabs, Typography, Tag, Spin, Alert } from 'antd';
+import { SearchOutlined, CodeOutlined, PlayCircleOutlined, LoadingOutlined, CheckCircleOutlined } from '@ant-design/icons';
+import { executeNaturalLanguageQuery, translateToSqlWithEvaluation, executeSqlQuery } from '../services/api';
 
 const { TextArea } = Input;
 const { TabPane } = Tabs;
@@ -11,49 +11,20 @@ const NaturalLanguageQuery = () => {
   const [query, setQuery] = useState('');
   const [loading, setLoading] = useState(false);
   const [results, setResults] = useState([]);
-  const [sql, setSql] = useState('');
+  const [generatedSql, setGeneratedSql] = useState('');
+  const [evaluation, setEvaluation] = useState('');
   const [activeTab, setActiveTab] = useState('result');
+  const [sqlReady, setSqlReady] = useState(false);
   const [showResults, setShowResults] = useState(false);
-  const [showSql, setShowSql] = useState(false);
+  const [showSqlReview, setShowSqlReview] = useState(false);
+  const [showEvaluation, setShowEvaluation] = useState(false);
   const [sqlGenerating, setSqlGenerating] = useState(false);
   const [queryExecuting, setQueryExecuting] = useState(false);
+  const [hasExecutedQuery, setHasExecutedQuery] = useState(false);
+  const [executingAnimation, setExecutingAnimation] = useState(false);
+  const [executionSuccess, setExecutionSuccess] = useState(false);
 
-  // 执行自然语言查询
-  const handleExecuteQuery = async () => {
-    if (!query.trim()) {
-      message.warning('请输入查询语句');
-      return;
-    }
-
-    setLoading(true);
-    setQueryExecuting(true);
-    setShowResults(false);
-    try {
-      console.log('执行查询:', query);
-      const response = await executeNaturalLanguageQuery(query);
-      console.log('查询结果:', response);
-      if (response.success) {
-        setResults(response.results || []);
-        setActiveTab('result');
-        // 添加延迟，让动画效果更明显
-        setTimeout(() => {
-          setShowResults(true);
-        }, 300);
-        message.success('查询成功');
-      } else {
-        message.error(response.message || '查询失败');
-      }
-    } catch (error) {
-      console.error('查询失败详细信息:', error);
-      console.error('错误响应:', error.response);
-      message.error('查询失败，请检查网络或服务器状态');
-    } finally {
-      setLoading(false);
-      setQueryExecuting(false);
-    }
-  };
-
-  // 将自然语言转换为SQL
+  // 将自然语言转换为SQL并生成评估
   const handleTranslateToSql = async () => {
     if (!query.trim()) {
       message.warning('请输入查询语句');
@@ -62,28 +33,33 @@ const NaturalLanguageQuery = () => {
 
     setLoading(true);
     setSqlGenerating(true);
-    setShowSql(false);
-    setSql('');
-    
-    // 添加打字机效果
+    setShowSqlReview(false);
+    setShowEvaluation(false);
+    setSqlReady(false);
     try {
       console.log('转换为SQL:', query);
-      const response = await translateToSql(query);
+      const response = await translateToSqlWithEvaluation(query);
       console.log('转换结果:', response);
-      if (response.success) {
-        const generatedSql = response.sql || '';
+      if (response.success && response.data) {
+        const { sql = '', evaluation = '' } = response.data;
+        setGeneratedSql(sql);
+        setEvaluation(evaluation);
         setActiveTab('sql');
         
-        // 打字机效果
-        let currentSql = '';
-        for (let i = 0; i < generatedSql.length; i++) {
-          await new Promise(resolve => setTimeout(resolve, 30));
-          currentSql += generatedSql[i];
-          setSql(currentSql);
+        // 添加延迟，让动画效果更明显
+        setTimeout(() => {
+          setShowSqlReview(true);
+        }, 300);
+        
+        // 添加延迟显示评估结果
+        if (evaluation) {
+          setTimeout(() => {
+            setShowEvaluation(true);
+          }, 600);
         }
         
-        setShowSql(true);
-        message.success('转换成功');
+        setSqlReady(true);
+        message.success('SQL转换和评估成功，您可以查看并执行查询');
       } else {
         message.error(response.message || '转换失败');
       }
@@ -94,6 +70,83 @@ const NaturalLanguageQuery = () => {
     } finally {
       setLoading(false);
       setSqlGenerating(false);
+    }
+  };
+
+  // 执行SQL查询
+  const handleExecuteQuery = async () => {
+    if (!generatedSql && !query.trim()) {
+      message.warning('请先输入查询语句并生成SQL');
+      return;
+    }
+
+    setLoading(true);
+    setQueryExecuting(true);
+    setShowResults(false);
+    setHasExecutedQuery(false);
+    
+    // 添加执行中动画状态
+    setExecutingAnimation(true);
+    
+    try {
+      console.log('执行查询:', query);
+      
+      let response;
+      // 区分执行方式：如果已有生成的SQL，则执行该SQL；否则直接执行自然语言查询
+      if (sqlReady && generatedSql) {
+        console.log('执行已生成的SQL:', generatedSql);
+        // 使用新的执行SQL API
+        response = await executeSqlQuery(generatedSql, query);
+      } else {
+        console.log('直接执行自然语言查询:', query);
+        // 使用旧的直接执行API
+        response = await executeNaturalLanguageQuery(query);
+      }
+      
+      console.log('查询结果:', response);
+      if (response.success && response.data) {
+        const { results = [], evaluation: executionEvaluation = '' } = response.data;
+        setResults(results);
+        
+        // 如果执行结果有新的评估，更新评估
+        if (executionEvaluation) {
+          setEvaluation(executionEvaluation);
+        }
+        
+        // 执行成功动画
+        setExecutionSuccess(true);
+        
+        // 延迟切换到结果标签页，让用户看到执行成功动画
+        setTimeout(() => {
+          setActiveTab('result');
+          
+          // 添加延迟，让动画效果更明显
+          setTimeout(() => {
+            setShowResults(true);
+            setHasExecutedQuery(true);
+            setExecutionSuccess(false);
+          }, 300);
+        }, 500);
+        
+        message.success(results.length > 0 ? '查询成功，返回数据' : '查询成功，暂无数据');
+      } else {
+        setHasExecutedQuery(true);
+        setExecutionSuccess(false);
+        message.error(response.message || '查询失败');
+      }
+    } catch (error) {
+      console.error('查询失败详细信息:', error);
+      console.error('错误响应:', error.response);
+      setHasExecutedQuery(true);
+      setExecutionSuccess(false);
+      message.error('查询失败，请检查SQL语法或网络状态');
+    } finally {
+      // 添加延迟关闭加载状态，确保动画完整显示
+      setTimeout(() => {
+        setLoading(false);
+        setQueryExecuting(false);
+        setExecutingAnimation(false);
+      }, 500);
     }
   };
 
@@ -149,6 +202,9 @@ const NaturalLanguageQuery = () => {
           fontFamily: 'monospace';
           position: relative;
           min-height: 150px;
+          overflow-x: auto;
+          white-space: pre-wrap;
+          word-break: break-word;
         }
         
         .loading-container {
@@ -162,7 +218,137 @@ const NaturalLanguageQuery = () => {
         .loading-content {
           text-align: center;
         }
+        
+        .sql-review-card {
+          border: 2px solid #e6f7ff;
+          border-radius: 8px;
+          background-color: #f0f9ff;
+          padding: 20px;
+          margin-bottom: 16px;
+        }
+        
+        .evaluation-card {
+          background-color: #f6ffed;
+          border: 1px solid #b7eb8f;
+          border-radius: 4px;
+          padding: 16px;
+          margin-bottom: 16px;
+          min-height: 150px;
+          white-space: pre-wrap;
+          word-break: break-word;
+        }
+        
+        /* 执行动画样式 */
+        .execution-animation {
+          position: fixed;
+          top: 50%;
+          left: 50%;
+          transform: translate(-50%, -50%);
+          z-index: 1000;
+          background-color: rgba(255, 255, 255, 0.95);
+          padding: 40px;
+          border-radius: 12px;
+          box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          justify-content: center;
+          min-width: 300px;
+          animation: fadeInScale 0.3s ease-in-out;
+        }
+        
+        @keyframes fadeInScale {
+          from {
+            opacity: 0;
+            transform: translate(-50%, -50%) scale(0.8);
+          }
+          to {
+            opacity: 1;
+            transform: translate(-50%, -50%) scale(1);
+          }
+        }
+        
+        .execution-spinner {
+          width: 60px;
+          height: 60px;
+          border: 4px solid #f3f3f3;
+          border-top: 4px solid #1890ff;
+          border-radius: 50%;
+          animation: spin 1s linear infinite;
+          margin-bottom: 20px;
+        }
+        
+        @keyframes spin {
+          0% { transform: rotate(0deg); }
+          100% { transform: rotate(360deg); }
+        }
+        
+        .execution-success {
+          width: 60px;
+          height: 60px;
+          background-color: #52c41a;
+          border-radius: 50%;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          margin-bottom: 20px;
+          animation: successPulse 0.6s ease-in-out;
+        }
+        
+        @keyframes successPulse {
+          0% {
+            transform: scale(0.5);
+            opacity: 0;
+          }
+          50% {
+            transform: scale(1.2);
+            opacity: 1;
+          }
+          100% {
+            transform: scale(1);
+            opacity: 1;
+          }
+        }
+        
+        .execution-success-icon {
+          color: white;
+          font-size: 32px;
+        }
+        
+        .execution-text {
+          font-size: 18px;
+          font-weight: 600;
+          color: #333;
+          margin-bottom: 10px;
+        }
+        
+        .execution-subtext {
+          font-size: 14px;
+          color: #666;
+          text-align: center;
+        }
       `}</style>
+      
+      {/* 执行动画组件 */}
+      {(executingAnimation || executionSuccess) && (
+        <div className="execution-animation">
+          {executionSuccess ? (
+            <>
+              <div className="execution-success">
+                <CheckCircleOutlined className="execution-success-icon" />
+              </div>
+              <div className="execution-text">查询执行成功</div>
+              <div className="execution-subtext">正在跳转到结果页面...</div>
+            </>
+          ) : (
+            <>
+              <div className="execution-spinner"></div>
+              <div className="execution-text">正在执行查询</div>
+              <div className="execution-subtext">请稍候...</div>
+            </>
+          )}
+        </div>
+      )}
       
       <Space direction="vertical" size="middle" style={{ width: '100%' }}>
         <div style={{ width: '100%' }}>
@@ -178,11 +364,12 @@ const NaturalLanguageQuery = () => {
               type="primary" 
               onClick={handleExecuteQuery}
               loading={loading}
+              disabled={!sqlReady && !query.trim()}
               icon={<PlayCircleOutlined />}
               size="large"
               style={{ transition: 'all 0.3s ease' }}
             >
-              执行查询
+              {sqlReady ? '执行查询' : '直接执行'}
             </Button>
             <Button 
               onClick={handleTranslateToSql}
@@ -191,7 +378,7 @@ const NaturalLanguageQuery = () => {
               size="large"
               style={{ transition: 'all 0.3s ease' }}
             >
-              转换为SQL
+              生成SQL和评估
             </Button>
           </Space>
         </div>
@@ -210,20 +397,29 @@ const NaturalLanguageQuery = () => {
                   <p style={{ marginTop: '16px', fontSize: '16px', color: '#666' }}>正在执行查询，请稍候...</p>
                 </div>
               </div>
-            ) : results.length > 0 ? (
-              <div className={showResults ? 'fade-in' : ''} style={{ opacity: showResults ? 1 : 0, transform: showResults ? 'translateY(0)' : 'translateY(20px)', transition: 'all 0.5s ease-in-out' }}>
-                <Table
-                  columns={getColumns()}
-                  dataSource={results.map((item, index) => ({ ...item, key: index }))}
-                  pagination={{ pageSize: 10 }}
-                  scroll={{ x: 800 }}
-                  loading={loading}
-                />
-              </div>
+            ) : hasExecutedQuery ? (
+              results.length > 0 ? (
+                <div className={showResults ? 'fade-in' : ''} style={{ opacity: showResults ? 1 : 0, transform: showResults ? 'translateY(0)' : 'translateY(20px)', transition: 'all 0.5s ease-in-out' }}>
+                  <Table
+                    columns={getColumns()}
+                    dataSource={results.map((item, index) => ({ ...item, key: index }))}
+                    pagination={{ pageSize: 10 }}
+                    scroll={{ x: 800 }}
+                    loading={loading}
+                  />
+                </div>
+              ) : (
+                <div style={{ textAlign: 'center', padding: '40px', backgroundColor: '#fff7e6', border: '1px solid #ffd591', borderRadius: '4px' }}>
+                  <SearchOutlined style={{ fontSize: '48px', color: '#faad14' }} />
+                  <p style={{ marginTop: '16px', color: '#fa8c16' }}>查询已执行，但未返回任何结果</p>
+                  <p style={{ marginTop: '8px', color: '#fa8c16', fontSize: '12px' }}>请检查查询条件或尝试其他查询方式</p>
+                </div>
+              )
             ) : (
               <div style={{ textAlign: 'center', padding: '40px' }}>
                 <SearchOutlined style={{ fontSize: '48px', color: '#ccc' }} />
-                <p style={{ marginTop: '16px', color: '#999' }}>暂无查询结果</p>
+                <p style={{ marginTop: '16px', color: '#999' }}>请输入查询语句并执行查询</p>
+                <p style={{ marginTop: '8px', color: '#999', fontSize: '14px' }}>或点击"生成SQL和评估"先查看生成的SQL</p>
               </div>
             )}
           </TabPane>
@@ -232,17 +428,84 @@ const NaturalLanguageQuery = () => {
               <div className="loading-container">
                 <div className="loading-content">
                   <Spin indicator={<LoadingOutlined style={{ fontSize: 48, color: '#1890ff' }} spin />} />
-                  <p style={{ marginTop: '16px', fontSize: '16px', color: '#666' }}>正在生成SQL，请稍候...</p>
+                  <p style={{ marginTop: '16px', fontSize: '16px', color: '#666' }}>正在生成SQL和评估，请稍候...</p>
                 </div>
               </div>
-            ) : sql ? (
-              <div className={showSql ? 'fade-in sql-container' : 'sql-container'} style={{ opacity: showSql ? 1 : 0, transform: showSql ? 'translateY(0)' : 'translateY(20px)', transition: 'all 0.5s ease-in-out' }}>
-                <pre>{sql}</pre>
+            ) : generatedSql ? (
+              <div className={showSqlReview ? 'fade-in' : ''} style={{ opacity: showSqlReview ? 1 : 0, transform: showSqlReview ? 'translateY(0)' : 'translateY(20px)', transition: 'all 0.5s ease-in-out' }}>
+                <div className="sql-review-card">
+                  <div style={{ marginBottom: '16px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', marginBottom: '8px' }}>
+                      <CheckCircleOutlined style={{ color: '#52c41a', marginRight: '8px' }} />
+                      <Text strong>SQL生成成功，请检查后执行</Text>
+                    </div>
+                    <div style={{ marginBottom: '16px' }}>
+                      <Title level={5} style={{ marginBottom: '8px' }}>生成的SQL</Title>
+                      <div className="sql-container">
+                        <pre>{generatedSql}</pre>
+                      </div>
+                    </div>
+                    <Button 
+                      type="primary" 
+                      onClick={handleExecuteQuery}
+                      loading={loading}
+                      icon={<PlayCircleOutlined />}
+                      size="large"
+                      style={{ marginTop: '8px' }}
+                    >
+                      执行该SQL
+                    </Button>
+                  </div>
+                </div>
+                
+                {evaluation && (
+                  <div className={showEvaluation ? 'fade-in' : ''} style={{ opacity: showEvaluation ? 1 : 0, transform: showEvaluation ? 'translateY(0)' : 'translateY(20px)', transition: 'all 0.5s ease-in-out' }}>
+                    <div className="evaluation-card">
+                      <Title level={5} style={{ marginBottom: '8px', color: '#52c41a' }}>AI 分析评估</Title>
+                      <Text>{evaluation}</Text>
+                    </div>
+                  </div>
+                )}
               </div>
             ) : (
               <div style={{ textAlign: 'center', padding: '40px' }}>
                 <CodeOutlined style={{ fontSize: '48px', color: '#ccc' }} />
-                <p style={{ marginTop: '16px', color: '#999' }}>暂无生成的SQL</p>
+                <p style={{ marginTop: '16px', color: '#999' }}>请先输入查询语句，点击"生成SQL和评估"</p>
+              </div>
+            )}
+          </TabPane>
+          <TabPane tab="结果评估" key="evaluation">
+            {queryExecuting ? (
+              <div className="loading-container">
+                <div className="loading-content">
+                  <Spin indicator={<LoadingOutlined style={{ fontSize: 48, color: '#1890ff' }} spin />} />
+                  <p style={{ marginTop: '16px', fontSize: '16px', color: '#666' }}>正在生成评估结果，请稍候...</p>
+                </div>
+              </div>
+            ) : evaluation ? (
+              <div className={showEvaluation ? 'fade-in' : ''} style={{ opacity: showEvaluation ? 1 : 0, transform: showEvaluation ? 'translateY(0)' : 'translateY(20px)', transition: 'all 0.5s ease-in-out' }}>
+                <div className="evaluation-card">
+                  <Title level={5} style={{ marginBottom: '8px', color: '#52c41a' }}>AI 分析结论</Title>
+                  <Text>{evaluation}</Text>
+                </div>
+                {generatedSql && (
+                  <div style={{ marginBottom: '16px' }}>
+                    <Title level={5} style={{ marginBottom: '8px' }}>执行的SQL</Title>
+                    <div className="sql-container">
+                      <pre>{generatedSql}</pre>
+                    </div>
+                  </div>
+                )}
+              </div>
+            ) : results.length > 0 ? (
+              <div style={{ textAlign: 'center', padding: '40px' }}>
+                <CodeOutlined style={{ fontSize: '48px', color: '#ccc' }} />
+                <p style={{ marginTop: '16px', color: '#999' }}>正在生成评估结果...</p>
+              </div>
+            ) : (
+              <div style={{ textAlign: 'center', padding: '40px' }}>
+                <CodeOutlined style={{ fontSize: '48px', color: '#ccc' }} />
+                <p style={{ marginTop: '16px', color: '#999' }}>暂无结果评估</p>
               </div>
             )}
           </TabPane>

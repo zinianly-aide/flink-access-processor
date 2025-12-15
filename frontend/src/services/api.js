@@ -237,6 +237,26 @@ export const translateToSql = async (query) => {
   }
 };
 
+export const translateToSqlWithEvaluation = async (query) => {
+  try {
+    const response = await axiosInstance.post('/natural-language-query/translate-to-sql-with-evaluation', { query });
+    return response.data;
+  } catch (error) {
+    console.error('Error translating to SQL with evaluation:', error);
+    throw error;
+  }
+};
+
+export const executeSqlQuery = async (sql, originalQuery) => {
+  try {
+    const response = await axiosInstance.post('/natural-language-query/execute-sql', { sql, originalQuery });
+    return response.data;
+  } catch (error) {
+    console.error('Error executing SQL query:', error);
+    throw error;
+  }
+};
+
 // 数据库元数据相关API
 export const fetchAllTables = async () => {
   try {

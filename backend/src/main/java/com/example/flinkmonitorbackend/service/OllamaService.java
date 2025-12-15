@@ -97,9 +97,15 @@ public class OllamaService {
 
         // 检查是否包含多个语句
         if (upperSql.contains(";")) {
-            // 只允许单个SELECT语句
+            // 只允许单个SELECT语句，过滤掉空字符串元素
             String[] statements = upperSql.split(";").clone();
-            if (statements.length > 1) {
+            int actualStatementCount = 0;
+            for (String statement : statements) {
+                if (statement.trim().length() > 0) {
+                    actualStatementCount++;
+                }
+            }
+            if (actualStatementCount > 1) {
                 return false;
             }
         }
@@ -134,5 +140,43 @@ public class OllamaService {
         cleanedSql = cleanedSql.trim();
 
         return cleanedSql;
+    }
+
+    /**
+     * 评估SQL查询结果，生成自然语言描述
+     *
+     * @param query 原始自然语言查询
+     * @param sql 生成的SQL语句
+     * @param results 查询结果
+     * @return 结果评估的自然语言描述
+     */
+    public String evaluateSqlResults(String query, String sql, Object results) {
+        // 构建评估提示词
+        String prompt = buildEvaluationPrompt(query, sql, results);
+        
+        // 使用Ollama生成评估
+        return ollamaChatModel.generate(prompt);
+    }
+
+    /**
+     * 构建结果评估提示词
+     *
+     * @param query 原始自然语言查询
+     * @param sql 生成的SQL语句
+     * @param results 查询结果
+     * @return 构建好的提示词
+     */
+    private String buildEvaluationPrompt(String query, String sql, Object results) {
+        return "你是一个数据分析助手，请根据以下信息评估SQL查询结果：\n" +
+                "\n1. 原始自然语言查询：\n" + query + "\n" +
+                "\n2. 生成的SQL语句：\n" + sql + "\n" +
+                "\n3. 查询结果：\n" + results + "\n" +
+                "\n请严格遵守以下规则：\n" +
+                "1. 用自然语言描述查询结果，要清晰、准确、简洁\n" +
+                "2. 分析查询结果是否符合用户的查询意图\n" +
+                "3. 如果结果有异常或不符合预期，请指出\n" +
+                "4. 不要添加任何与评估无关的内容\n" +
+                "5. 不要返回SQL语句，只返回评估描述\n" +
+                "\n请生成评估结果：\n";
     }
 }
