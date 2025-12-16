@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { escapeAttribute, getDefaultCsp, getNonce } from './webviewSecurity';
 
 export class SettingsViewProvider implements vscode.WebviewViewProvider {
     public static readonly viewType = 'cline-dify-assistant-settings';
@@ -66,23 +67,26 @@ export class SettingsViewProvider implements vscode.WebviewViewProvider {
     }
 
     private _getHtmlForWebview(webview: vscode.Webview): string {
+        const nonce = getNonce();
+        const csp = getDefaultCsp(webview, nonce);
         // Get current settings
         const config = vscode.workspace.getConfiguration('cline-dify-assistant');
-        const apiKey = config.get<string>('apiKey', '');
-        const baseUrl = config.get<string>('baseUrl', 'https://api.dify.ai');
-        const model = config.get<string>('model', 'gpt-4');
-        const provider = config.get<string>('provider', 'dify');
-        const ollamaBaseUrl = config.get<string>('ollamaBaseUrl', 'http://localhost:11434');
-        const ollamaModel = config.get<string>('ollamaModel', 'llama3');
+        const apiKey = escapeAttribute(config.get<string>('apiKey', ''));
+        const baseUrl = escapeAttribute(config.get<string>('baseUrl', 'https://api.dify.ai'));
+        const model = escapeAttribute(config.get<string>('model', 'gpt-4'));
+        const provider = escapeAttribute(config.get<string>('provider', 'dify'));
+        const ollamaBaseUrl = escapeAttribute(config.get<string>('ollamaBaseUrl', 'http://localhost:11434'));
+        const ollamaModel = escapeAttribute(config.get<string>('ollamaModel', 'llama3'));
         const mcpEnabled = config.get<boolean>('mcpEnabled', false);
-        const mcpBaseUrl = config.get<string>('mcpBaseUrl', 'http://localhost:3921');
-        const mcpApiKey = config.get<string>('mcpApiKey', '');
+        const mcpBaseUrl = escapeAttribute(config.get<string>('mcpBaseUrl', 'http://localhost:3921'));
+        const mcpApiKey = escapeAttribute(config.get<string>('mcpApiKey', ''));
 
         return `<!DOCTYPE html>
             <html lang="en">
             <head>
                 <meta charset="UTF-8">
                 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                <meta http-equiv="Content-Security-Policy" content="${csp}">
                 <title>Cline Dify Assistant Settings</title>
                 <style>
                     body {
@@ -250,7 +254,7 @@ export class SettingsViewProvider implements vscode.WebviewViewProvider {
 
                 <button class="save-button" onclick="saveSettings()">Save Settings</button>
 
-                <script>
+                <script nonce="${nonce}">
                     // Debug: Check if acquireVsCodeApi is available
                     console.log('acquireVsCodeApi available:', typeof acquireVsCodeApi !== 'undefined');
                     
@@ -330,11 +334,14 @@ export class FeaturesViewProvider implements vscode.WebviewViewProvider {
     }
 
     private _getHtmlForWebview(webview: vscode.Webview): string {
+        const nonce = getNonce();
+        const csp = getDefaultCsp(webview, nonce);
         return `<!DOCTYPE html>
             <html lang="en">
             <head>
                 <meta charset="UTF-8">
                 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                <meta http-equiv="Content-Security-Policy" content="${csp}">
                 <title>Cline Dify Assistant Features</title>
                 <style>
                     body {
@@ -473,7 +480,7 @@ export class FeaturesViewProvider implements vscode.WebviewViewProvider {
                     <div class="feature-command">cline-dify-assistant.debugGeneratedCode</div>
                 </div>
 
-                <script>
+                <script nonce="${nonce}">
                     const vscode = acquireVsCodeApi();
 
                     function executeCommand(command) {

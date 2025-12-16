@@ -18,7 +18,22 @@
     "Other"
   ],
   "activationEvents": [
-    "onStartupFinished"
+    "onView:cline-dify-assistant-settings",
+    "onView:cline-dify-assistant-features",
+    "onView:cline-dify-assistant-qna",
+    "onCommand:cline-dify-assistant.generateCode",
+    "onCommand:cline-dify-assistant.explainCode",
+    "onCommand:cline-dify-assistant.improveCode",
+    "onCommand:cline-dify-assistant.generateDirectoryStructure",
+    "onCommand:cline-dify-assistant.executeCommand",
+    "onCommand:cline-dify-assistant.showProjectStructure",
+    "onCommand:cline-dify-assistant.readFileContent",
+    "onCommand:cline-dify-assistant.startDualRoleGenerator",
+    "onCommand:cline-dify-assistant.debugGeneratedCode",
+    "onCommand:cline-dify-assistant.configureSettings",
+    "onCommand:cline-dify-assistant.openChangeTracker",
+    "onCommand:cline-dify-assistant.runMcpQuery",
+    "onCommand:cline-dify-assistant.insertCodeCitation"
   ],
   "main": "./out/extension.js",
   "contributes": {
@@ -174,6 +189,44 @@
           "type": "string",
           "default": "llama3",
           "description": "Ollama model name to use"
+        },
+        "cline-dify-assistant.logLevel": {
+          "type": "string",
+          "enum": [
+            "debug",
+            "info",
+            "warn",
+            "error",
+            "fatal"
+          ],
+          "default": "info",
+          "description": "Logging level for the extension"
+        },
+        "cline-dify-assistant.ui.showStatusBar": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show status bar progress indicator"
+        },
+        "cline-dify-assistant.ui.autoFocus": {
+          "type": "boolean",
+          "default": true,
+          "description": "Auto focus the Q&A panel when opened"
+        },
+        "cline-dify-assistant.safety.allowCommandExecution": {
+          "type": "boolean",
+          "default": true,
+          "description": "Allow executing shell commands from within the extension"
+        },
+        "cline-dify-assistant.safety.commandWhitelist": {
+          "type": "array",
+          "default": [
+            "ls",
+            "pwd",
+            "git status",
+            "npm run",
+            "yarn run"
+          ],
+          "description": "Whitelisted commands allowed when command execution is enabled"
         },
         "cline-dify-assistant.mcpEnabled": {
           "type": "boolean",

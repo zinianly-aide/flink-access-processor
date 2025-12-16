@@ -87,7 +87,9 @@ export class CitationService {
     }
 
     private async pickFile(workspaceFolder: vscode.WorkspaceFolder): Promise<vscode.Uri | undefined> {
-        const files = await vscode.workspace.findFiles('**/*', '**/node_modules/**', 200);
+        const includePattern = new vscode.RelativePattern(workspaceFolder, '**/*');
+        const excludePattern = new vscode.RelativePattern(workspaceFolder, '**/node_modules/**');
+        const files = await vscode.workspace.findFiles(includePattern, excludePattern, 200);
         if (!files.length) {
             vscode.window.showWarningMessage('未找到可引用的文件。');
             return undefined;

@@ -7,9 +7,11 @@ import { ConfigItem } from './types';
 export class ConfigService {
     private readonly CONFIG_SECTION = 'cline-dify-assistant';
     private configItems: Map<string, ConfigItem> = new Map();
+    private cachedValues: Map<string, any> = new Map();
 
     constructor() {
         this.initializeConfigItems();
+        this.snapshotCurrentValues();
     }
 
     /**
@@ -32,7 +34,7 @@ export class ConfigService {
                 description: 'Dify API Key',
                 type: 'string',
                 scope: 'global',
-                required: true
+                required: false
             },
             {
                 key: 'baseUrl',
@@ -50,7 +52,7 @@ export class ConfigService {
                 scope: 'global'
             },
             {
-                key: 'ollamaUrl',
+                key: 'ollamaBaseUrl',
                 defaultValue: 'http://localhost:11434',
                 description: 'Ollama API URL',
                 type: 'string',
@@ -59,10 +61,34 @@ export class ConfigService {
             },
             {
                 key: 'ollamaModel',
-                defaultValue: 'llama2',
+                defaultValue: 'llama3',
                 description: 'Default Ollama Model',
                 type: 'string',
                 scope: 'global'
+            },
+
+            // MCP configuration
+            {
+                key: 'mcpEnabled',
+                defaultValue: false,
+                description: 'Enable MCP integration',
+                type: 'boolean',
+                scope: 'workspace'
+            },
+            {
+                key: 'mcpBaseUrl',
+                defaultValue: 'http://localhost:3921',
+                description: 'MCP server base URL',
+                type: 'string',
+                scope: 'workspace',
+                validate: (value: string) => /^https?:\/\/.+/.test(value)
+            },
+            {
+                key: 'mcpApiKey',
+                defaultValue: '',
+                description: 'MCP API key (optional)',
+                type: 'string',
+                scope: 'workspace'
             },
             
             // Generator configuration
@@ -105,6 +131,16 @@ export class ConfigService {
                 description: 'Auto focus on Q&A panel',
                 type: 'boolean',
                 scope: 'window'
+            },
+
+            // Logging
+            {
+                key: 'logLevel',
+                defaultValue: 'info',
+                description: 'Logging level',
+                type: 'string',
+                scope: 'global',
+                validate: (value: string) => ['debug', 'info', 'warn', 'error', 'fatal'].includes(value)
             },
             
             // Safety configuration
@@ -192,11 +228,18 @@ export class ConfigService {
      */
     public validateAll(): { valid: boolean; errors: string[] } {
         const errors: string[] = [];
+
+        const provider = this.get<string>('provider');
         
         for (const [key, item] of this.configItems.entries()) {
             const value = this.get(key);
             
             // Check required
+            if (key === 'apiKey' && provider === 'dify' && !value) {
+                errors.push(`Required configuration '${key}' is missing`);
+                continue;
+            }
+
             if (item.required && !value) {
                 errors.push(`Required configuration '${key}' is missing`);
             }
@@ -223,7 +266,7 @@ export class ConfigService {
     public getSection(section: string): Record<string, any> {
         const result: Record<string, any> = {};
         
-        for (const [key, item] of this.configItems.entries()) {
+        for (const [key] of this.configItems.entries()) {
             if (key.startsWith(`${section}.`)) {
                 result[key.replace(`${section}.`, '')] = this.get(key);
             }
@@ -276,20 +319,25 @@ export class ConfigService {
     public watch(callback: (key: string, newValue: any, oldValue: any) => void): vscode.Disposable {
         return vscode.workspace.onDidChangeConfiguration((event) => {
             if (event.affectsConfiguration(this.CONFIG_SECTION)) {
-                // Get configuration before change
-                const oldConfig = vscode.workspace.getConfiguration(this.CONFIG_SECTION);
-                // Get configuration after change
                 const newConfig = vscode.workspace.getConfiguration(this.CONFIG_SECTION);
                 
                 for (const key of this.configItems.keys()) {
-                    const oldValue = oldConfig.get(key);
                     const newValue = newConfig.get(key);
+                    const oldValue = this.cachedValues.get(key);
                     
                     if (oldValue !== newValue) {
                         callback(key, newValue, oldValue);
+                        this.cachedValues.set(key, newValue);
                     }
                 }
             }
         });
+    }
+
+    private snapshotCurrentValues(): void {
+        const config = vscode.workspace.getConfiguration(this.CONFIG_SECTION);
+        for (const key of this.configItems.keys()) {
+            this.cachedValues.set(key, config.get(key));
+        }
     }
 }

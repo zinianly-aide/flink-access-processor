@@ -1,4 +1,4 @@
-import { ChatCompletionRequestMessage, ChatCompletionResponse } from './types';
+import { ChatCompletionRequestMessage } from './types';
 
 /**
  * AI Provider interface for unified access to different AI services

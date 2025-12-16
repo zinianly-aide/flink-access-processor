@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import { DifyService } from './difyService';
 import { McpService } from './mcpService';
 import { CitationService } from './citationService';
+import { escapeHtml, getDefaultCsp, getNonce } from './webviewSecurity';
 
 interface ChatMessage {
     role: 'user' | 'assistant';
@@ -38,7 +39,7 @@ export class QnaViewProvider implements vscode.WebviewViewProvider {
             localResourceRoots: [this.extensionUri]
         };
 
-        webviewView.webview.html = this.getHtml(this.messages);
+        webviewView.webview.html = this.getHtml(webviewView.webview, this.messages);
 
         webviewView.webview.onDidReceiveMessage(async (message) => {
             switch (message.type) {
@@ -92,7 +93,7 @@ export class QnaViewProvider implements vscode.WebviewViewProvider {
             return;
         }
 
-        this._view.webview.html = this.getHtml(this.messages);
+        this._view.webview.html = this.getHtml(this._view.webview, this.messages);
         setTimeout(() => this.postMessages(), 100);
     }
 
@@ -146,18 +147,23 @@ export class QnaViewProvider implements vscode.WebviewViewProvider {
         this._view?.webview.postMessage({ type: 'updateMessages', messages: this.messages });
     }
 
-    private getHtml(_messages: ChatMessage[]): string {
+    private getHtml(webview: vscode.Webview, _messages: ChatMessage[]): string {
+        const nonce = getNonce();
         const config = vscode.workspace.getConfiguration('cline-dify-assistant');
         const provider = config.get<string>('provider', 'dify');
         const model = provider === 'ollama'
             ? config.get<string>('ollamaModel', 'llama3')
             : config.get<string>('model', 'gpt-4');
+        const csp = getDefaultCsp(webview, nonce);
+        const safeProvider = escapeHtml(provider);
+        const safeModel = escapeHtml(model);
 
         return `<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Content-Security-Policy" content="${csp}">
     <style>
         body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; padding: 16px; margin: 0; }
         h2 { margin-top: 0; color: #4F46E5; }
@@ -181,10 +187,10 @@ export class QnaViewProvider implements vscode.WebviewViewProvider {
         <button id="sendButton">发送</button>
     </div>
     <div class="settings">
-        当前 Provider: <strong>${provider}</strong> · Model: <strong>${model}</strong><br>
+        当前 Provider: <strong>${safeProvider}</strong> · Model: <strong>${safeModel}</strong><br>
         <button id="openSettings">打开配置</button>
     </div>
-    <script>
+    <script nonce="${nonce}">
         const vscode = acquireVsCodeApi();
         const chat = document.getElementById('chat');
         const input = document.getElementById('questionInput');

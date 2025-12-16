@@ -4,6 +4,7 @@ import { DifyProvider } from './difyProvider';
 import { OllamaProvider } from './ollamaProvider';
 import { ConfigService } from './configService';
 import { LoggerService } from './loggerService';
+import { escapeHtml, getDefaultCsp, getNonce } from './webviewSecurity';
 
 const SUPPORTED_COMPLETION_LANGUAGES = new Set([
     'javascript',
@@ -39,7 +40,9 @@ export class DifyService {
         this.statusBarItem.text = '$(robot) Cline Dify: Idle';
         this.statusBarItem.tooltip = 'Cline Dify Assistant 状态（点击配置）';
         this.statusBarItem.command = 'cline-dify-assistant.configureSettings';
-        this.statusBarItem.show();
+        if (this.configService.get<boolean>('ui.showStatusBar')) {
+            this.statusBarItem.show();
+        }
         this.context.subscriptions.push(this.statusBarItem);
         
         // Initialize providers
@@ -65,7 +68,7 @@ export class DifyService {
             const apiKey = this.configService.get<string>('apiKey');
             const baseUrl = this.configService.get<string>('baseUrl');
             const model = this.configService.get<string>('model');
-            const ollamaUrl = this.configService.get<string>('ollamaUrl');
+            const ollamaUrl = this.configService.get<string>('ollamaBaseUrl');
             const ollamaModel = this.configService.get<string>('ollamaModel');
 
             // Initialize Dify provider
@@ -290,19 +293,23 @@ export class DifyService {
             }
         );
 
-        panel.webview.html = this.getWebviewContent(content);
+        panel.webview.html = this.getWebviewContent(panel.webview, content);
     }
 
     /**
      * Get webview HTML content
      */
-    private getWebviewContent(content: string): string {
+    private getWebviewContent(webview: vscode.Webview, content: string): string {
+        const nonce = getNonce();
+        const csp = getDefaultCsp(webview, nonce);
+        const rendered = this.renderContentSafely(content);
         return `
         <!DOCTYPE html>
         <html lang="en">
         <head>
             <meta charset="UTF-8">
             <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <meta http-equiv="Content-Security-Policy" content="${csp}">
             <title>Cline Dify Assistant</title>
             <style>
                 body {
@@ -328,10 +335,23 @@ export class DifyService {
             </style>
         </head>
         <body>
-            ${content.replace(/\n/g, '<br>').replace(/```([\s\S]*?)```/g, '<pre>$1</pre>')}
+            ${rendered}
         </body>
         </html>
         `;
+    }
+
+    private renderContentSafely(content: string): string {
+        // Render text + fenced code blocks safely without allowing HTML injection.
+        const parts = content.split('```');
+        const rendered = parts.map((part, index) => {
+            const safe = escapeHtml(part);
+            if (index % 2 === 1) {
+                return `<pre><code>${safe}</code></pre>`;
+            }
+            return `<div>${safe.replace(/\n/g, '<br>')}</div>`;
+        });
+        return rendered.join('');
     }
 
     /**
@@ -388,13 +408,13 @@ export class DifyService {
             } else {
                 const ollamaUrl = await vscode.window.showInputBox({
                     prompt: 'Enter the Ollama server URL',
-                    value: this.configService.get<string>('ollamaUrl'),
+                    value: this.configService.get<string>('ollamaBaseUrl'),
                     ignoreFocusOut: true
                 });
                 if (ollamaUrl === undefined) {
                     return;
                 }
-                await this.configService.set('ollamaUrl', ollamaUrl.trim() || 'http://localhost:11434');
+                await this.configService.set('ollamaBaseUrl', ollamaUrl.trim() || 'http://localhost:11434');
 
                 const ollamaModel = await vscode.window.showInputBox({
                     prompt: 'Enter the Ollama model name',

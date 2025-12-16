@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import { exec } from 'child_process';
 import * as util from 'util';
+import { escapeHtml, getDefaultCsp, getNonce } from './webviewSecurity';
 
 const execAsync = util.promisify(exec);
 
@@ -68,17 +69,19 @@ export class ChangeTrackerService {
     }
 
     private getWebviewContent(data: { status?: string; diff?: string; error?: string }): string {
+        const nonce = getNonce();
         const statusSection = data.error
-            ? `<div class="error">${this.escapeHtml(data.error)}</div>`
-            : `<pre>${this.escapeHtml(data.status ?? '')}</pre>`;
+            ? `<div class="error">${escapeHtml(data.error)}</div>`
+            : `<pre>${escapeHtml(data.status ?? '')}</pre>`;
 
-        const diffSection = data.error ? '' : `<pre>${this.escapeHtml(data.diff ?? '')}</pre>`;
+        const diffSection = data.error ? '' : `<pre>${escapeHtml(data.diff ?? '')}</pre>`;
 
         return `<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Content-Security-Policy" content="${getDefaultCsp(this.panel!.webview, nonce)}">
     <style>
         body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; padding: 16px; }
         h1 { font-size: 18px; margin-bottom: 12px; color: #111827; }
@@ -94,7 +97,7 @@ export class ChangeTrackerService {
     <h2>Git Status</h2>
     ${statusSection}
     ${diffSection ? '<h2>Diff</h2>' + diffSection : ''}
-    <script>
+    <script nonce="${nonce}">
         const vscode = acquireVsCodeApi();
         document.getElementById('refresh').addEventListener('click', () => {
             vscode.postMessage({ type: 'refresh' });
@@ -102,14 +105,5 @@ export class ChangeTrackerService {
     </script>
 </body>
 </html>`;
-    }
-
-    private escapeHtml(text: string): string {
-        return text
-            .replace(/&/g, '&amp;')
-            .replace(/</g, '&lt;')
-            .replace(/>/g, '&gt;')
-            .replace(/"/g, '&quot;')
-            .replace(/'/g, '&#039;');
     }
 }

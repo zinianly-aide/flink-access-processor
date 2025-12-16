@@ -94,23 +94,87 @@ export class GeneratorService {
      * Planner Role: Generate structured plan JSON
      */
     private async generateStructuredPlan(projectDescription: string): Promise<ProjectPlan | null> {
-        const prompt = `You are an expert AI development planner.\n\nCreate a STRICT JSON plan for the following project:\n${projectDescription}\n\nRules:\n- Output ONLY valid JSON. No markdown, no backticks, no comments.\n- Use UTF-8 plain text.\n- All paths MUST be relative to the project root, use forward slashes, and must NOT contain '..' or start with '/'.\n- The plan must include every directory and file that will be created.\n- The plan version MUST be exactly \"1.0.0\".\n\nJSON Schema (strict):\n{\n  \"version\": \"1.0.0\",\n  \"projectName\": string,\n  \"description\": string,\n  \"directories\": string[],\n  \"files\": [{
-    \"path\": string,
-    \"purpose\": string,
-    \"language\": string,
-    \"dependencies\": string[],
-    \"overwrite\": boolean
-  }],\n  \"steps\": [{ 
-    \"id\": string, 
-    \"name\": string, 
-    \"description\": string, 
-    \"dependencies\": string[],
-    \"action\": \"create\" | \"modify\" | \"delete\" | \"run\" | \"test\",
-    \"target\": string
-  }],\n  \"dependencies\": string[],\n  \"metadata\": {\n    \"generatedAt\": string,
-    \"generatorVersion\": string,
-    \"model\": string
-  }\n}\n\nExample:\n{\n  \"version\": \"1.0.0\",\n  \"projectName\": \"My React App\",\n  \"description\": \"A simple React application with modern tooling\",\n  \"directories\": [\"src\", \"src/components\", \"src/utils\"],\n  \"files\": [\n    {\n      \"path\": \"src/index.jsx\",\n      \"purpose\": \"Application entry point\",\n      \"language\": \"javascriptreact\",\n      \"dependencies\": [],\n      \"overwrite\": false\n    },\n    {\n      \"path\": \"src/App.jsx\",\n      \"purpose\": \"Main application component\",\n      \"language\": \"javascriptreact\",\n      \"dependencies\": [\"src/index.jsx\"],\n      \"overwrite\": false\n    }\n  ],\n  \"steps\": [\n    {\n      \"id\": \"1\",\n      \"name\": \"Create project structure\",\n      \"description\": \"Create the basic directory structure\",\n      \"dependencies\": [],\n      \"action\": \"create\",\n      \"target\": \\".\"\n    }\n  ],\n  \"dependencies\": [\"react\", \"react-dom\", \"vite\"],\n  \"metadata\": {\n    \"generatedAt\": \"2025-01-01T00:00:00.000Z\",\n    \"generatorVersion\": \"0.0.1\",\n    \"model\": \"gpt-4\"\n  }\n}\n`;
+        const prompt = `You are an expert AI development planner.
+
+Create a STRICT JSON plan for the following project:
+${projectDescription}
+
+Rules:
+- Output ONLY valid JSON. No markdown, no backticks, no comments.
+- Use UTF-8 plain text.
+- All paths MUST be relative to the project root, use forward slashes, and must NOT contain '..' or start with '/'.
+- The plan must include every directory and file that will be created.
+- The plan version MUST be exactly "1.0.0".
+
+JSON Schema (strict):
+{
+  "version": "1.0.0",
+  "projectName": string,
+  "description": string,
+  "directories": string[],
+  "files": [{
+    "path": string,
+    "purpose": string,
+    "language": string,
+    "dependencies": string[],
+    "overwrite": boolean
+  }],
+  "steps": [{
+    "id": string,
+    "name": string,
+    "description": string,
+    "dependencies": string[],
+    "action": "create" | "modify" | "delete" | "run" | "test",
+    "target": string
+  }],
+  "dependencies": string[],
+  "metadata": {
+    "generatedAt": string,
+    "generatorVersion": string,
+    "model": string
+  }
+}
+
+Example:
+{
+  "version": "1.0.0",
+  "projectName": "My React App",
+  "description": "A simple React application with modern tooling",
+  "directories": ["src", "src/components", "src/utils"],
+  "files": [
+    {
+      "path": "src/index.jsx",
+      "purpose": "Application entry point",
+      "language": "javascriptreact",
+      "dependencies": [],
+      "overwrite": false
+    },
+    {
+      "path": "src/App.jsx",
+      "purpose": "Main application component",
+      "language": "javascriptreact",
+      "dependencies": ["src/index.jsx"],
+      "overwrite": false
+    }
+  ],
+  "steps": [
+    {
+      "id": "1",
+      "name": "Create project structure",
+      "description": "Create the basic directory structure",
+      "dependencies": [],
+      "action": "create",
+      "target": "."
+    }
+  ],
+  "dependencies": ["react", "react-dom", "vite"],
+  "metadata": {
+    "generatedAt": "2025-01-01T00:00:00.000Z",
+    "generatorVersion": "0.0.1",
+    "model": "gpt-4"
+  }
+}
+`;
 
         const raw = await this.difyService.getModelResponse(prompt, '规划 JSON');
         if (!raw) {
@@ -288,15 +352,23 @@ export class GeneratorService {
     }
 
     private async previewPlanAndSelectFiles(plan: ProjectPlan): Promise<string[] | null> {
+        const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+        if (!workspaceFolder) {
+            this.logger.showWarning('No workspace folder open.');
+            return null;
+        }
+
         const fileItems = plan.files
             .map(file => {
                 const normalized = this.normalizeRelativePath(file.path);
                 if (!normalized) {
                     return null;
                 }
+                const absolute = path.join(workspaceFolder.uri.fsPath, normalized);
+                const exists = fs.existsSync(absolute);
                 return {
                     label: normalized,
-                    description: file.purpose,
+                    description: `${exists ? 'exists' : 'new'} · ${file.purpose}`,
                     picked: true
                 };
             })
@@ -323,8 +395,24 @@ export class GeneratorService {
             return null;
         }
 
+        const directoriesToCreate = new Set<string>();
+        plan.directories.forEach(dir => {
+            const normalized = this.normalizeRelativePath(dir, true);
+            if (normalized && normalized !== '.') {
+                directoriesToCreate.add(normalized);
+            }
+        });
+        selected.forEach(file => {
+            const dirName = path.posix.dirname(file);
+            if (dirName && dirName !== '.') {
+                directoriesToCreate.add(dirName);
+            }
+        });
+        const newDirectories = Array.from(directoriesToCreate).filter(dir => !fs.existsSync(path.join(workspaceFolder.uri.fsPath, dir)));
+        const existingFiles = selected.filter(file => fs.existsSync(path.join(workspaceFolder.uri.fsPath, file)));
+
         const confirmation = await this.logger.showInfo(
-            `将生成 ${selected.length} 个文件，并创建 ${plan.directories.length} 个目录（若不存在）。继续吗？`,
+            `预览：将生成 ${selected.length} 个文件（其中 ${existingFiles.length} 个已存在），并创建 ${newDirectories.length} 个目录（若不存在）。继续吗？`,
             ['继续', '取消']
         );
         if (confirmation !== '继续') {
