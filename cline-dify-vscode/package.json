@@ -1,0 +1,241 @@
+{
+  "name": "cline-dify-assistant",
+  "displayName": "Cline Dify Assistant",
+  "description": "AI coding assistant powered by Dify backend",
+  "version": "0.0.1",
+  "publisher": "trae-ai",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/trae-ai/cline-dify-assistant.git"
+  },
+  "engines": {
+    "vscode": "^1.80.0"
+  },
+  "categories": [
+    "AI",
+    "Programming Languages",
+    "Snippets",
+    "Other"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "cline-dify-assistant.generateCode",
+        "title": "Generate Code with Dify"
+      },
+      {
+        "command": "cline-dify-assistant.explainCode",
+        "title": "Explain Code with Dify"
+      },
+      {
+        "command": "cline-dify-assistant.improveCode",
+        "title": "Improve Code with Dify"
+      },
+      {
+        "command": "cline-dify-assistant.generateDirectoryStructure",
+        "title": "Generate Directory Structure"
+      },
+      {
+        "command": "cline-dify-assistant.executeCommand",
+        "title": "Execute Command Line"
+      },
+      {
+        "command": "cline-dify-assistant.showProjectStructure",
+        "title": "Show Project Structure"
+      },
+      {
+        "command": "cline-dify-assistant.readFileContent",
+        "title": "Read File Content"
+      },
+      {
+        "command": "cline-dify-assistant.startDualRoleGenerator",
+        "title": "Start Dual-Role Generator"
+      },
+      {
+        "command": "cline-dify-assistant.debugGeneratedCode",
+        "title": "Debug Generated Code"
+      },
+      {
+        "command": "cline-dify-assistant.configureSettings",
+        "title": "Configure Cline Dify Assistant"
+      },
+      {
+        "command": "cline-dify-assistant.openChangeTracker",
+        "title": "Show Code Change Tracker"
+      },
+      {
+        "command": "cline-dify-assistant.runMcpQuery",
+        "title": "Run MCP Query"
+      },
+      {
+        "command": "cline-dify-assistant.insertCodeCitation",
+        "title": "Insert Code Citation"
+      }
+    ],
+    "menus": {
+      "editor/context": [
+        {
+          "command": "cline-dify-assistant.generateCode",
+          "group": "navigation@1"
+        },
+        {
+          "command": "cline-dify-assistant.explainCode",
+          "group": "navigation@2"
+        },
+        {
+          "command": "cline-dify-assistant.improveCode",
+          "group": "navigation@3"
+        },
+        {
+          "command": "cline-dify-assistant.startDualRoleGenerator",
+          "group": "navigation@4"
+        }
+      ],
+      "explorer/context": [
+        {
+          "command": "cline-dify-assistant.generateDirectoryStructure",
+          "group": "navigation@1"
+        },
+        {
+          "command": "cline-dify-assistant.showProjectStructure",
+          "group": "navigation@2"
+        },
+        {
+          "command": "cline-dify-assistant.executeCommand",
+          "group": "navigation@3"
+        }
+      ]
+    },
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "cline-dify-assistant-view",
+          "title": "Cline Dify Assistant",
+          "icon": "resources/icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "cline-dify-assistant-view": [
+        {
+          "id": "cline-dify-assistant-settings",
+          "name": "Settings",
+          "type": "webview"
+        },
+        {
+          "id": "cline-dify-assistant-features",
+          "name": "Features",
+          "type": "webview"
+        },
+        {
+          "id": "cline-dify-assistant-qna",
+          "name": "Q&A Assistant",
+          "type": "webview"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Cline Dify Assistant",
+      "properties": {
+        "cline-dify-assistant.apiKey": {
+          "type": "string",
+          "default": "",
+          "description": "Dify API Key"
+        },
+        "cline-dify-assistant.baseUrl": {
+          "type": "string",
+          "default": "https://api.dify.ai",
+          "description": "Dify API Base URL"
+        },
+        "cline-dify-assistant.model": {
+          "type": "string",
+          "default": "gpt-4",
+          "description": "AI Model to use"
+        },
+        "cline-dify-assistant.provider": {
+          "type": "string",
+          "enum": [
+            "dify",
+            "ollama"
+          ],
+          "default": "dify",
+          "description": "Backend provider to use for AI responses"
+        },
+        "cline-dify-assistant.ollamaBaseUrl": {
+          "type": "string",
+          "default": "http://localhost:11434",
+          "description": "Ollama server URL (only used when provider is Ollama)"
+        },
+        "cline-dify-assistant.ollamaModel": {
+          "type": "string",
+          "default": "llama3",
+          "description": "Ollama model name to use"
+        },
+        "cline-dify-assistant.mcpEnabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enable Model Context Protocol (MCP) integration"
+        },
+        "cline-dify-assistant.mcpBaseUrl": {
+          "type": "string",
+          "default": "http://localhost:3921",
+          "description": "Base URL of the MCP server"
+        },
+        "cline-dify-assistant.mcpApiKey": {
+          "type": "string",
+          "default": "",
+          "description": "Optional API key for MCP server"
+        },
+        "cline-dify-assistant.generator.temperature": {
+          "type": "number",
+          "default": 0.7,
+          "description": "Temperature for code generation (0-2)"
+        },
+        "cline-dify-assistant.generator.maxTokens": {
+          "type": "number",
+          "default": 2048,
+          "description": "Maximum tokens for generation"
+        },
+        "cline-dify-assistant.generator.conflictStrategy": {
+          "type": "string",
+          "enum": [
+            "overwrite",
+            "skip",
+            "merge",
+            "ask"
+          ],
+          "default": "ask",
+          "description": "Conflict resolution strategy when generating files"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "pretest": "npm run compile && npm run lint",
+    "lint": "eslint src --ext ts",
+    "test": "node ./out/test/runTest.js"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.80.0",
+    "@types/glob": "^8.1.0",
+    "@types/mocha": "^10.0.1",
+    "@types/node": "16.x",
+    "@typescript-eslint/eslint-plugin": "^6.0.0",
+    "@typescript-eslint/parser": "^6.0.0",
+    "eslint": "^8.42.0",
+    "glob": "^8.1.0",
+    "mocha": "^10.2.0",
+    "typescript": "^5.1.3",
+    "@vscode/test-electron": "^2.3.0"
+  },
+  "dependencies": {
+    "axios": "^1.6.0"
+  }
+}
