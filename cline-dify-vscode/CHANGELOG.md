@@ -26,3 +26,7 @@
 
 ## 0.5.0
 - MCP: add optional `/tools` and `/resources` discovery helpers (with 404 guidance)
+
+## 0.6.0
+- Generator: apply plan `dependencies` into `package.json` and generate `DEPENDENCIES.md`
+- Generator: stronger prompts to pin dependency versions and restrict third-party imports to declared deps

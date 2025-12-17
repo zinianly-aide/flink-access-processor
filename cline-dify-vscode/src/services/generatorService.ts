@@ -8,6 +8,8 @@ import { GenerationRun, ProjectPlan, ConflictStrategy } from './types';
 import { LoggerService } from './loggerService';
 import { ConfigService } from './configService';
 import { pickWorkspaceFolder } from './workspaceService';
+import { DependencyService } from './dependencyService';
+import * as os from 'os';
 
 const execAsync = util.promisify(exec);
 
@@ -17,6 +19,7 @@ export class GeneratorService {
     private configService: ConfigService;
     private logger: LoggerService;
     private outputChannel: vscode.OutputChannel;
+    private dependencyService: DependencyService;
 
     constructor(context: vscode.ExtensionContext, difyService: DifyService) {
         this.context = context;
@@ -24,6 +27,7 @@ export class GeneratorService {
         this.configService = new ConfigService();
         this.logger = new LoggerService();
         this.outputChannel = vscode.window.createOutputChannel('Cline Dify Generator');
+        this.dependencyService = new DependencyService();
     }
 
     private logPlanDebug(message: string, metadata?: Record<string, unknown>): void {
@@ -109,6 +113,8 @@ export class GeneratorService {
                 return;
             }
 
+            await this.maybeApplyDependencies(plan, workspaceFolder.uri.fsPath);
+
             // Step 3: Executor Role - Generate Code Based on Documentation
             progress.report({ message: 'Previewing planned changes...' });
             const selected = await this.previewPlanAndSelectFiles(plan, workspaceFolder.uri.fsPath);
@@ -190,6 +196,10 @@ Rules:
 - The plan version MUST be exactly "1.0.0".
 - metadata.generatorVersion MUST be exactly "${generatorVersion}".
 - metadata.model MUST be exactly "${model}".
+- "dependencies" MUST list all required third-party packages (both runtime and dev). Prefer pinned versions using npm spec format:
+  - unscoped: "react@^18.2.0"
+  - scoped: "@types/node@^20.11.0" (use the LAST '@' as version delimiter)
+- Do NOT include Node.js built-in modules in "dependencies" (fs, path, http, etc).
 
 JSON Schema (strict):
 {
@@ -440,10 +450,83 @@ Example:
      * Generate content for a specific file based on documentation
      */
     private async generateFileContent(plan: ProjectPlan, file: ProjectPlan['files'][0]): Promise<string> {
-        const prompt = `You are an expert AI code generator.\n\nYou MUST generate the complete code for exactly ONE file.\n\nTarget file (relative to project root): ${file.path}\nDescription: ${file.purpose}\nLanguage: ${file.language}\n\nProject plan (JSON):\n${JSON.stringify(plan)}\n\nStrict requirements:\n- Output ONLY the code content for the target file. No markdown fences. No explanations.\n- Do NOT change the target file path or create other files.\n- Assume all other files/directories from the plan exist at their specified relative paths.\n- Use correct relative imports consistent with the plan.\n`;
+        const dependencyList = Array.isArray(plan.dependencies) ? plan.dependencies.join(', ') : '';
+        const prompt = `You are an expert AI code generator.\n\nYou MUST generate the complete code for exactly ONE file.\n\nTarget file (relative to project root): ${file.path}\nDescription: ${file.purpose}\nLanguage: ${file.language}\n\nProject plan (JSON):\n${JSON.stringify(plan)}\n\nStrict requirements:\n- Output ONLY the code content for the target file. No markdown fences. No explanations.\n- Do NOT change the target file path or create other files.\n- Assume all other files/directories from the plan exist at their specified relative paths.\n- Use correct relative imports consistent with the plan.\n- Third-party imports MUST come ONLY from this dependency list (or be local relative imports): ${dependencyList}\n`;
 
         const { model, temperature, maxTokens } = this.getGenerationOptions();
         return this.difyService.getModelResponse(prompt, `生成文件 ${file.path}`, { model, temperature, maxTokens });
+    }
+
+    private async maybeApplyDependencies(plan: ProjectPlan, projectRoot: string): Promise<void> {
+        const deps = Array.isArray(plan.dependencies) ? plan.dependencies.filter(d => typeof d === 'string' && d.trim()) : [];
+        if (!deps.length) {
+            return;
+        }
+
+        const choice = await this.logger.showQuickPick(
+            [
+                { label: '写入 package.json（推荐）', description: '把依赖合并到 package.json，并生成 DEPENDENCIES.md' },
+                { label: '仅生成 DEPENDENCIES.md', description: '不修改 package.json，仅导出依赖清单与安装命令' },
+                { label: '跳过', description: '暂不处理依赖' }
+            ],
+            { placeHolder: '检测到计划包含 dependencies，是否应用依赖？', ignoreFocusOut: true }
+        );
+
+        if (!choice || choice.label === '跳过') {
+            return;
+        }
+
+        if (choice.label.startsWith('仅生成')) {
+            const parsed = this.dependencyService.parseDependencies(deps);
+            const pm = this.dependencyService.detectPackageManager(projectRoot);
+            const cmd = this.dependencyService.buildInstallCommand(pm, parsed.entries);
+            const markdownPath = path.join(projectRoot, 'DEPENDENCIES.md');
+            fs.writeFileSync(
+                markdownPath,
+                ['# Dependencies', '', 'This file is generated by Cline Dify Assistant.', '', `- Package manager: \`${pm}\``, '', '## Install', '', '```sh', cmd || '# (no dependencies)', '```', ''].join('\n')
+            );
+
+            if (parsed.warnings.length) {
+                this.outputChannel.appendLine('[deps] warnings ' + JSON.stringify(parsed.warnings));
+                this.outputChannel.show(true);
+            }
+
+            const action = await this.logger.showInfo('已生成 DEPENDENCIES.md。', ['打开文件', '复制安装命令']);
+            if (action === '打开文件') {
+                await vscode.window.showTextDocument(vscode.Uri.file(markdownPath), { preview: false });
+            } else if (action === '复制安装命令') {
+                await vscode.env.clipboard.writeText(cmd);
+                this.logger.showInfo('已复制安装命令到剪贴板。');
+            }
+            return;
+        }
+
+        const result = this.dependencyService.applyDependencies(projectRoot, deps);
+        if (result.warnings.length) {
+            this.outputChannel.appendLine('[deps] warnings ' + JSON.stringify(result.warnings));
+        }
+        this.outputChannel.appendLine('[deps] added ' + JSON.stringify(result.added));
+        this.outputChannel.appendLine('[deps] addedDev ' + JSON.stringify(result.addedDev));
+        if (result.skipped.length) {
+            this.outputChannel.appendLine('[deps] skipped ' + JSON.stringify(result.skipped));
+        }
+        this.outputChannel.show(true);
+
+        const picked = await this.logger.showInfo(
+            `已更新依赖：dependencies +${Object.keys(result.added).length}，devDependencies +${Object.keys(result.addedDev).length}。`,
+            ['打开 DEPENDENCIES.md', '复制安装命令']
+        );
+
+        if (picked === '打开 DEPENDENCIES.md') {
+            await vscode.window.showTextDocument(vscode.Uri.file(result.markdownPath), { preview: false });
+        } else if (picked === '复制安装命令') {
+            await vscode.env.clipboard.writeText(result.installCommand || '');
+            this.logger.showInfo('已复制安装命令到剪贴板。');
+            if (result.installCommand) {
+                this.outputChannel.appendLine('[deps] install');
+                this.outputChannel.appendLine(result.installCommand + os.EOL);
+            }
+        }
     }
 
     /**
