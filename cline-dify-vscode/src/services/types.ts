@@ -105,3 +105,26 @@ export interface ConfigItem<T = any> {
     required?: boolean;
     validate?: (value: T) => boolean;
 }
+
+export interface GenerationRun {
+    runId: string;
+    startedAt: string;
+    endedAt?: string;
+    mode: 'apply' | 'dry-run';
+    projectRoot: string;
+    planPath: string;
+    projectDescription: string;
+    provider: string;
+    model: string;
+    temperature?: number;
+    maxTokens?: number;
+    selectedFiles: string[];
+    conflictStrategy: ConflictStrategy;
+    result?: {
+        generated: number;
+        skipped: number;
+        blocked: number;
+        failed: number;
+    };
+    error?: string;
+}

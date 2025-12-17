@@ -4,7 +4,7 @@ import * as path from 'path';
 import { exec } from 'child_process';
 import util from 'util';
 import { DifyService } from './difyService';
-import { ProjectPlan, ConflictStrategy } from './types';
+import { GenerationRun, ProjectPlan, ConflictStrategy } from './types';
 import { LoggerService } from './loggerService';
 import { ConfigService } from './configService';
 import { pickWorkspaceFolder } from './workspaceService';
@@ -24,6 +24,31 @@ export class GeneratorService {
         this.configService = new ConfigService();
         this.logger = new LoggerService();
         this.outputChannel = vscode.window.createOutputChannel('Cline Dify Generator');
+    }
+
+    private getExtensionVersion(): string {
+        const version = (this.context.extension?.packageJSON as any)?.version;
+        return typeof version === 'string' && version.trim() ? version.trim() : 'unknown';
+    }
+
+    private getConfiguredModel(): string {
+        const provider = this.configService.get<string>('provider');
+        return provider === 'ollama'
+            ? this.configService.get<string>('ollamaModel')
+            : this.configService.get<string>('model');
+    }
+
+    private getGenerationOptions(): { model: string; temperature: number; maxTokens: number } {
+        return {
+            model: this.getConfiguredModel(),
+            temperature: this.configService.get<number>('generator.temperature'),
+            maxTokens: this.configService.get<number>('generator.maxTokens')
+        };
+    }
+
+    private async writeGenerationRun(projectRoot: string, run: GenerationRun): Promise<void> {
+        const outputPath = path.join(projectRoot, 'GENERATION_RUN.json');
+        fs.writeFileSync(outputPath, JSON.stringify(run, null, 2));
     }
 
     /**
@@ -86,8 +111,56 @@ export class GeneratorService {
                 return;
             }
 
+            const modePick = await this.logger.showQuickPick(
+                [
+                    { label: 'Apply (write files)', description: '实际创建目录并写入文件' },
+                    { label: 'Dry Run (no writes)', description: '仅预览，不写入任何文件' }
+                ],
+                { placeHolder: '选择执行模式', ignoreFocusOut: true }
+            );
+            if (!modePick) {
+                return;
+            }
+
+            const mode: GenerationRun['mode'] = modePick.label.startsWith('Dry') ? 'dry-run' : 'apply';
+            const runId = `run-${Date.now()}`;
+            const { model, temperature, maxTokens } = this.getGenerationOptions();
+            const provider = this.configService.get<string>('provider');
+            const conflictStrategy = this.configService.get<ConflictStrategy>('generator.conflictStrategy');
+
+            const run: GenerationRun = {
+                runId,
+                startedAt: new Date().toISOString(),
+                mode,
+                projectRoot: workspaceFolder.uri.fsPath,
+                planPath: 'DEVELOPMENT_PLAN.json',
+                projectDescription,
+                provider,
+                model,
+                temperature,
+                maxTokens,
+                selectedFiles: selected,
+                conflictStrategy
+            };
+
+            try {
+                await this.writeGenerationRun(workspaceFolder.uri.fsPath, run);
+            } catch (error) {
+                this.logger.warn('Failed to write GENERATION_RUN.json', { error: String(error) });
+            }
+
+            if (mode === 'dry-run') {
+                run.result = this.simulateGeneration(plan, selected, workspaceFolder.uri.fsPath);
+                run.endedAt = new Date().toISOString();
+                await this.writeGenerationRun(workspaceFolder.uri.fsPath, run);
+                this.logger.showInfo('Dry run 完成：未写入任何文件。已生成 GENERATION_RUN.json。');
+                return;
+            }
+
             progress.report({ message: 'Generating code from structured plan...' });
-            await this.generateCodeFromPlan(plan, selected, workspaceFolder.uri.fsPath);
+            run.result = await this.generateCodeFromPlan(plan, selected, workspaceFolder.uri.fsPath);
+            run.endedAt = new Date().toISOString();
+            await this.writeGenerationRun(workspaceFolder.uri.fsPath, run);
         });
     }
 
@@ -95,6 +168,8 @@ export class GeneratorService {
      * Planner Role: Generate structured plan JSON
      */
     private async generateStructuredPlan(projectDescription: string): Promise<ProjectPlan | null> {
+        const generatorVersion = this.getExtensionVersion();
+        const { model, temperature, maxTokens } = this.getGenerationOptions();
         const prompt = `You are an expert AI development planner.
 
 Create a STRICT JSON plan for the following project:
@@ -106,6 +181,8 @@ Rules:
 - All paths MUST be relative to the project root, use forward slashes, and must NOT contain '..' or start with '/'.
 - The plan must include every directory and file that will be created.
 - The plan version MUST be exactly "1.0.0".
+- metadata.generatorVersion MUST be exactly "${generatorVersion}".
+- metadata.model MUST be exactly "${model}".
 
 JSON Schema (strict):
 {
@@ -131,8 +208,8 @@ JSON Schema (strict):
   "dependencies": string[],
   "metadata": {
     "generatedAt": string,
-    "generatorVersion": string,
-    "model": string
+    "generatorVersion": "${generatorVersion}",
+    "model": "${model}"
   }
 }
 
@@ -171,13 +248,13 @@ Example:
   "dependencies": ["react", "react-dom", "vite"],
   "metadata": {
     "generatedAt": "2025-01-01T00:00:00.000Z",
-    "generatorVersion": "0.0.1",
-    "model": "gpt-4"
+    "generatorVersion": "${generatorVersion}",
+    "model": "${model}"
   }
 }
 `;
 
-        const raw = await this.difyService.getModelResponse(prompt, '规划 JSON');
+        const raw = await this.difyService.getModelResponse(prompt, '规划 JSON', { model, temperature, maxTokens });
         if (!raw) {
             return null;
         }
@@ -198,10 +275,14 @@ Example:
     /**
      * Executor Role: Generate code based on structured plan
      */
-    private async generateCodeFromPlan(plan: ProjectPlan, selectedFiles: string[], projectRoot: string): Promise<void> {
+    private async generateCodeFromPlan(
+        plan: ProjectPlan,
+        selectedFiles: string[],
+        projectRoot: string
+    ): Promise<{ generated: number; skipped: number; blocked: number; failed: number }> {
         const directoriesToCreate = new Set<string>();
         plan.directories.forEach(dir => {
-            const normalized = this.normalizeRelativePath(dir);
+            const normalized = this.normalizeRelativePath(dir, true);
             if (normalized && normalized !== '.') {
                 directoriesToCreate.add(normalized);
             }
@@ -226,12 +307,14 @@ Example:
             } catch (error) {
                 this.logger.error(`Failed to create directory ${dir}:`, error instanceof Error ? error : new Error(String(error)));
                 this.logger.showWarning(`Failed to create directory: ${dir}`);
-                return;
+                return { generated: 0, skipped: 0, blocked: 0, failed: 1 };
             }
         }
 
         let generatedCount = 0;
         let skippedCount = 0;
+        let blockedCount = 0;
+        let failedCount = 0;
         
         // Get conflict strategy from configuration
         const conflictStrategy = this.configService.get<ConflictStrategy>('generator.conflictStrategy');
@@ -242,6 +325,7 @@ Example:
             const absolute = path.join(projectRoot, relativeFilePath);
             if (!this.isPathInsideProject(projectRoot, absolute)) {
                 this.logger.showWarning(`Blocked unsafe path: ${relativeFilePath}`);
+                blockedCount++;
                 continue;
             }
 
@@ -256,7 +340,7 @@ Example:
                     const decision = await this.promptFileConflict(relativeFilePath);
                     if (decision === 'cancel') {
                         this.logger.showInfo('Code generation cancelled.');
-                        return;
+                        return { generated: generatedCount, skipped: skippedCount, blocked: blockedCount, failed: failedCount };
                     } else if (decision === 'skip') {
                         skippedCount++;
                         this.logger.info(`Skipped existing file: ${relativeFilePath}`);
@@ -292,6 +376,7 @@ Example:
             } catch (error) {
                 this.logger.error(`Failed to write file ${relativeFilePath}:`, error instanceof Error ? error : new Error(String(error)));
                 this.logger.showWarning(`Failed to write file: ${relativeFilePath}`);
+                failedCount++;
             }
         }
 
@@ -301,6 +386,29 @@ Example:
             const summary = `Code generation completed. Generated ${generatedCount} file(s).${skippedCount ? ` Skipped ${skippedCount} existing file(s).` : ''}`;
             this.logger.showInfo(summary);
         }
+        return { generated: generatedCount, skipped: skippedCount, blocked: blockedCount, failed: failedCount };
+    }
+
+    private simulateGeneration(
+        _plan: ProjectPlan,
+        selectedFiles: string[],
+        projectRoot: string
+    ): { generated: number; skipped: number; blocked: number; failed: number } {
+        let skipped = 0;
+        let blocked = 0;
+
+        for (const relativeFilePath of selectedFiles) {
+            const absolute = path.join(projectRoot, relativeFilePath);
+            if (!this.isPathInsideProject(projectRoot, absolute)) {
+                blocked++;
+                continue;
+            }
+            if (fs.existsSync(absolute)) {
+                skipped++;
+            }
+        }
+
+        return { generated: 0, skipped, blocked, failed: 0 };
     }
 
     /**
@@ -309,7 +417,8 @@ Example:
     private async generateFileContent(plan: ProjectPlan, file: ProjectPlan['files'][0]): Promise<string> {
         const prompt = `You are an expert AI code generator.\n\nYou MUST generate the complete code for exactly ONE file.\n\nTarget file (relative to project root): ${file.path}\nDescription: ${file.purpose}\nLanguage: ${file.language}\n\nProject plan (JSON):\n${JSON.stringify(plan)}\n\nStrict requirements:\n- Output ONLY the code content for the target file. No markdown fences. No explanations.\n- Do NOT change the target file path or create other files.\n- Assume all other files/directories from the plan exist at their specified relative paths.\n- Use correct relative imports consistent with the plan.\n`;
 
-        return this.difyService.getModelResponse(prompt, `生成文件 ${file.path}`);
+        const { model, temperature, maxTokens } = this.getGenerationOptions();
+        return this.difyService.getModelResponse(prompt, `生成文件 ${file.path}`, { model, temperature, maxTokens });
     }
 
     /**
@@ -438,8 +547,9 @@ Example:
     }
 
     private async tryRepairPlanJson(raw: string): Promise<ProjectPlan | null> {
+        const { model, temperature, maxTokens } = this.getGenerationOptions();
         const prompt = `You will be given an invalid JSON draft.\nFix it into valid JSON that conforms to this plan schema exactly.\nOutput ONLY valid JSON.\n\nInvalid draft:\n${raw}`;
-        const repairedRaw = await this.difyService.getModelResponse(prompt, '修复规划 JSON');
+        const repairedRaw = await this.difyService.getModelResponse(prompt, '修复规划 JSON', { model, temperature, maxTokens });
         if (!repairedRaw) {
             return null;
         }
@@ -451,61 +561,163 @@ Example:
         return validated.ok ? validated.plan : null;
     }
 
-    private validatePlan(plan: ProjectPlan): { ok: true; plan: ProjectPlan } | { ok: false; error: string } {
-        if (!plan || plan.version !== '1.0.0') {
-            return { ok: false, error: 'Plan version must be 1.0.0' };
-        }
-        if (!plan.projectName || typeof plan.projectName !== 'string') {
-            return { ok: false, error: 'Missing projectName' };
-        }
-        if (!plan.description || typeof plan.description !== 'string') {
-            return { ok: false, error: 'Missing description' };
-        }
-        if (!Array.isArray(plan.directories) || !Array.isArray(plan.files)) {
-            return { ok: false, error: 'Missing directories/files' };
-        }
-        if (!Array.isArray(plan.steps)) {
-            return { ok: false, error: 'Missing steps section' };
-        }
-        if (!Array.isArray(plan.dependencies)) {
-            return { ok: false, error: 'Missing dependencies section' };
-        }
-        if (!plan.metadata || typeof plan.metadata !== 'object') {
-            return { ok: false, error: 'Missing metadata section' };
-        }
+    /* eslint-disable no-mixed-spaces-and-tabs */
+	    private validatePlan(plan: ProjectPlan): { ok: true; plan: ProjectPlan } | { ok: false; error: string } {
+	        if (!plan || plan.version !== '1.0.0') {
+	            return { ok: false, error: 'Plan version must be 1.0.0' };
+	        }
 
-        const normalizedDirs = new Set<string>();
-        for (const dir of plan.directories) {
-            const normalized = this.normalizeRelativePath(dir, true);
-            if (!normalized) {
-                return { ok: false, error: `Invalid directory path: ${dir}` };
-            }
-            normalizedDirs.add(normalized);
-        }
+	        if (!plan.projectName || typeof plan.projectName !== 'string' || !plan.projectName.trim()) {
+	            return { ok: false, error: 'Missing projectName' };
+	        }
 
-        const normalizedFiles: ProjectPlan['files'] = [];
-        const seenFiles = new Set<string>();
-        for (const file of plan.files) {
-            const normalized = this.normalizeRelativePath(file.path, false);
-            if (!normalized) {
-                return { ok: false, error: `Invalid file path: ${file.path}` };
-            }
-            if (seenFiles.has(normalized)) {
-                continue;
-            }
-            seenFiles.add(normalized);
-            normalizedFiles.push({ ...file, path: normalized });
-        }
+	        if (!plan.description || typeof plan.description !== 'string' || !plan.description.trim()) {
+	            return { ok: false, error: 'Missing description' };
+	        }
 
-        const updated: ProjectPlan = {
-            ...plan,
-            directories: Array.from(normalizedDirs),
-            files: normalizedFiles
-        };
+	        if (!Array.isArray(plan.directories) || !Array.isArray(plan.files)) {
+	            return { ok: false, error: 'Missing directories/files' };
+	        }
 
-        return { ok: true, plan: updated };
-    }
+	        if (!Array.isArray(plan.steps)) {
+	            return { ok: false, error: 'Missing steps section' };
+	        }
 
+	        if (!Array.isArray(plan.dependencies)) {
+	            return { ok: false, error: 'Missing dependencies section' };
+	        }
+
+	        if (!plan.metadata || typeof plan.metadata !== 'object') {
+	            return { ok: false, error: 'Missing metadata section' };
+	        }
+
+	        const normalizedDirs = new Set<string>();
+	        for (const dir of plan.directories) {
+	            const normalized = this.normalizeRelativePath(dir, true);
+	            if (!normalized) {
+	                return { ok: false, error: `Invalid directory path: ${dir}` };
+	            }
+	            if (normalized !== '.') {
+	                normalizedDirs.add(normalized);
+	            }
+	        }
+
+	        const normalizedFiles: ProjectPlan['files'] = [];
+	        const filePathSet = new Set<string>();
+	        for (const file of plan.files) {
+	            if (!file || typeof file !== 'object') {
+	                return { ok: false, error: 'Invalid file entry' };
+	            }
+
+	            const normalizedPath = this.normalizeRelativePath(file.path, false);
+	            if (!normalizedPath) {
+	                return { ok: false, error: `Invalid file path: ${file.path}` };
+	            }
+
+	            if (filePathSet.has(normalizedPath)) {
+	                return { ok: false, error: `Duplicate file path in plan: ${normalizedPath}` };
+	            }
+	            filePathSet.add(normalizedPath);
+
+	            if (typeof file.purpose !== 'string' || !file.purpose.trim()) {
+	                return { ok: false, error: `Missing purpose for file: ${normalizedPath}` };
+	            }
+	            if (typeof file.language !== 'string' || !file.language.trim()) {
+	                return { ok: false, error: `Missing language for file: ${normalizedPath}` };
+	            }
+	            if (!Array.isArray(file.dependencies)) {
+	                return { ok: false, error: `Invalid dependencies for file: ${normalizedPath}` };
+	            }
+
+	            const normalizedDeps: string[] = [];
+	            for (const dep of file.dependencies) {
+	                if (typeof dep !== 'string' || !dep.trim()) {
+	                    return { ok: false, error: `Invalid dependency value for file: ${normalizedPath}` };
+	                }
+	                const normalizedDep = this.normalizeRelativePath(dep, false);
+	                if (!normalizedDep) {
+	                    return { ok: false, error: `Invalid dependency path '${dep}' for file: ${normalizedPath}` };
+	                }
+	                normalizedDeps.push(normalizedDep);
+	            }
+
+	            normalizedFiles.push({
+	                ...file,
+	                path: normalizedPath,
+	                dependencies: normalizedDeps,
+	                overwrite: file.overwrite === true
+	            });
+	        }
+
+	        for (const file of normalizedFiles) {
+	            for (const dep of file.dependencies) {
+	                if (!filePathSet.has(dep)) {
+	                    return { ok: false, error: `File dependency '${dep}' not found in plan (referenced by ${file.path})` };
+	                }
+	            }
+	        }
+
+	        for (const filePath of filePathSet) {
+	            if (normalizedDirs.has(filePath)) {
+	                return { ok: false, error: `Path is both a directory and a file: ${filePath}` };
+	            }
+	        }
+
+	        const stepIds = new Set<string>();
+	        for (const step of plan.steps) {
+	            if (!step || typeof step !== 'object') {
+	                return { ok: false, error: 'Invalid step entry' };
+	            }
+	            if (typeof step.id !== 'string' || !step.id.trim()) {
+	                return { ok: false, error: 'Step id is required' };
+	            }
+	            if (stepIds.has(step.id)) {
+	                return { ok: false, error: `Duplicate step id: ${step.id}` };
+	            }
+	            stepIds.add(step.id);
+
+	            if (typeof step.name !== 'string' || !step.name.trim()) {
+	                return { ok: false, error: `Missing step name: ${step.id}` };
+	            }
+	            if (typeof step.description !== 'string') {
+	                return { ok: false, error: `Missing step description: ${step.id}` };
+	            }
+	            if (!Array.isArray(step.dependencies)) {
+	                return { ok: false, error: `Invalid step dependencies: ${step.id}` };
+	            }
+	            if (!['create', 'modify', 'delete', 'run', 'test'].includes(step.action)) {
+	                return { ok: false, error: `Invalid step action: ${step.id}` };
+	            }
+	        }
+
+	        for (const step of plan.steps) {
+	            for (const dep of step.dependencies) {
+	                if (typeof dep !== 'string' || !dep.trim() || !stepIds.has(dep)) {
+	                    return { ok: false, error: `Step dependency '${dep}' not found (referenced by ${step.id})` };
+	                }
+	            }
+	        }
+
+	        const generatorVersion = this.getExtensionVersion();
+	        const model = this.getConfiguredModel();
+	        const updated: ProjectPlan = {
+	            ...plan,
+	            directories: Array.from(normalizedDirs),
+	            files: normalizedFiles,
+	            metadata: {
+	                ...plan.metadata,
+	                generatedAt: typeof plan.metadata.generatedAt === 'string' && plan.metadata.generatedAt.trim()
+	                    ? plan.metadata.generatedAt
+	                    : new Date().toISOString(),
+	                generatorVersion,
+	                model
+	            }
+	        };
+
+	        return { ok: true, plan: updated };
+	    }
+
+    /* eslint-enable no-mixed-spaces-and-tabs */
     private normalizeRelativePath(value: string, treatAsDirectory: boolean = false): string | null {
         if (!value || typeof value !== 'string') {
             return null;

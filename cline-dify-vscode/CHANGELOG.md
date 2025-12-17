@@ -14,3 +14,8 @@
 - Multi-root: pick workspace folder for generator/project tools/citations/change tracker
 - Q&A: persistent chat history + stop/clear controls
 - Change Tracker: file list + per-file diff loading + open diff in editor
+
+## 0.3.0
+- Generator: record reproducible run metadata in `GENERATION_RUN.json` (mode/selection/model/params/results)
+- Generator: strengthen structured plan validation (paths, duplicates, deps, steps)
+- Generator: apply generation temperature/maxTokens config for plan + file generation

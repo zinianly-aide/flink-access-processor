@@ -6,7 +6,7 @@ import { ConfigService } from './configService';
 import { LoggerService } from './loggerService';
 import { ChatCompletionRequestMessage } from './types';
 import { escapeHtml, getDefaultCsp, getNonce } from './webviewSecurity';
-import { StreamHandle } from './aiProvider';
+import { GenerateOptions, StreamHandle } from './aiProvider';
 
 const SUPPORTED_COMPLETION_LANGUAGES = new Set([
     'javascript',
@@ -169,12 +169,12 @@ export class DifyService {
     /**
      * Get model response from the current provider (non-streaming)
      */
-    public async getModelResponse(prompt: string, contextLabel: string = 'Processing'): Promise<string> {
+    public async getModelResponse(prompt: string, contextLabel: string = 'Processing', options?: GenerateOptions): Promise<string> {
         try {
             this.setStatus(contextLabel, true);
             this.logger.debug('Getting model response', { prompt: prompt.substring(0, 100) + '...' });
             
-            const result = await this.getProvider().generate(prompt);
+            const result = await this.getProvider().generate(prompt, options);
             this.setStatus('Idle', false);
             this.logger.info('Model response received');
             return result;
