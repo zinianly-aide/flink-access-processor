@@ -16,9 +16,11 @@ export class ProjectService {
         rootName: string;
         includeFiles: boolean;
         showHidden: boolean;
+        useGitignore: boolean;
         maxDepth: number;
         filter: string;
     };
+    private gitignoreCache: Map<string, GitignoreMatcher> = new Map();
 
     constructor(context: vscode.ExtensionContext) {
         this.context = context;
@@ -245,6 +247,7 @@ export class ProjectService {
                     rootName: workspaceFolder.name,
                     includeFiles: true,
                     showHidden: false,
+                    useGitignore: true,
                     maxDepth: 4,
                     filter: ''
                 };
@@ -282,6 +285,12 @@ export class ProjectService {
                             if (typeof message.path === 'string') {
                                 await this.openStructurePath(message.path);
                             }
+                            break;
+                        case 'copyPath':
+                            await this.copyStructurePath(typeof message.path === 'string' ? message.path : '');
+                            break;
+                        case 'exportTextTree':
+                            await this.exportStructureAsText();
                             break;
                     }
                 });
@@ -349,8 +358,8 @@ export class ProjectService {
     ): string {
         const nonce = getNonce();
         const csp = getDefaultCsp(webview, nonce);
-        const dataJson = JSON.stringify(data);
-        const stateJson = JSON.stringify(state);
+        const dataJson = JSON.stringify(data).replace(/</g, '\\u003c');
+        const stateJson = JSON.stringify(state).replace(/</g, '\\u003c');
 
         return `<!DOCTYPE html>
         <html lang="en">
@@ -374,6 +383,7 @@ export class ProjectService {
                 li { margin: 2px 0; }
                 .node { display: flex; align-items: center; gap: 6px; padding: 2px 4px; border-radius: 4px; }
                 .node:hover { background: #f3f4f6; }
+                .node.selected { background: #eef2ff; }
                 .twisty { width: 14px; text-align: center; cursor: pointer; color: #6b7280; }
                 .name { cursor: pointer; }
                 .file { color: #111827; }
@@ -388,8 +398,11 @@ export class ProjectService {
                 <input id="filterInput" type="text" placeholder="筛选（按名称或路径）" />
                 <label><input id="includeFiles" type="checkbox" /> 文件</label>
                 <label><input id="showHidden" type="checkbox" /> 隐藏项</label>
+                <label><input id="useGitignore" type="checkbox" /> .gitignore</label>
                 <label>深度 <input id="maxDepth" type="number" min="1" max="12" /></label>
                 <button id="refresh">刷新</button>
+                <button id="copyPath" class="secondary">复制路径</button>
+                <button id="exportText" class="secondary">导出文本树</button>
             </div>
             <div class="meta" id="meta"></div>
             <div class="tree" id="tree"></div>
@@ -401,9 +414,11 @@ export class ProjectService {
                 const filterInput = document.getElementById('filterInput');
                 const includeFiles = document.getElementById('includeFiles');
                 const showHidden = document.getElementById('showHidden');
+                const useGitignore = document.getElementById('useGitignore');
                 const maxDepth = document.getElementById('maxDepth');
                 const tree = document.getElementById('tree');
                 const meta = document.getElementById('meta');
+                let selectedPath = '';
 
                 function renderTree(data) {
                     tree.innerHTML = '';
@@ -433,6 +448,12 @@ export class ProjectService {
                     row.appendChild(name);
 
                     li.appendChild(row);
+
+                    row.addEventListener('click', () => {
+                        selectedPath = node.path || '';
+                        document.querySelectorAll('.node.selected').forEach(el => el.classList.remove('selected'));
+                        row.classList.add('selected');
+                    });
 
                     if (node.type === 'dir') {
                         const childList = document.createElement('ul');
@@ -465,6 +486,7 @@ export class ProjectService {
                             filter: filterInput.value || '',
                             includeFiles: includeFiles.checked,
                             showHidden: showHidden.checked,
+                            useGitignore: useGitignore.checked,
                             maxDepth: parseInt(maxDepth.value || '4', 10)
                         }
                     });
@@ -474,14 +496,24 @@ export class ProjectService {
                     updateState();
                 });
 
+                document.getElementById('copyPath').addEventListener('click', () => {
+                    vscode.postMessage({ type: 'copyPath', path: selectedPath || '' });
+                });
+
+                document.getElementById('exportText').addEventListener('click', () => {
+                    vscode.postMessage({ type: 'exportTextTree' });
+                });
+
                 filterInput.addEventListener('change', updateState);
                 includeFiles.addEventListener('change', updateState);
                 showHidden.addEventListener('change', updateState);
+                useGitignore.addEventListener('change', updateState);
                 maxDepth.addEventListener('change', updateState);
 
                 filterInput.value = initialState.filter || '';
                 includeFiles.checked = !!initialState.includeFiles;
                 showHidden.checked = !!initialState.showHidden;
+                useGitignore.checked = initialState.useGitignore !== false;
                 maxDepth.value = String(initialState.maxDepth || 4);
 
                 renderTree(initialData);
@@ -556,6 +588,7 @@ export class ProjectService {
         let entryCount = 0;
         let files = 0;
         let directories = 0;
+        const ignore = state.useGitignore ? this.getGitignoreMatcher(state.rootPath) : undefined;
 
         const shouldSkip = (name: string): boolean => {
             if (!state.showHidden && name.startsWith('.')) {
@@ -597,6 +630,10 @@ export class ProjectService {
                 entryCount++;
 
                 const entryPath = relativePath ? `${relativePath}/${entry.name}` : entry.name;
+                const normalizedPath = entryPath.replace(/\\/g, '/');
+                if (ignore?.isIgnored(normalizedPath, entry.isDirectory())) {
+                    continue;
+                }
                 const fullPath = path.join(currentPath, entry.name);
 
                 if (entry.isDirectory()) {
@@ -606,7 +643,7 @@ export class ProjectService {
                     if (matchesFilter(entryPath) || childMatches) {
                         nodes.push({
                             name: entry.name,
-                            path: entryPath,
+                            path: normalizedPath,
                             type: 'dir',
                             children
                         });
@@ -616,7 +653,7 @@ export class ProjectService {
                     if (matchesFilter(entryPath)) {
                         nodes.push({
                             name: entry.name,
-                            path: entryPath,
+                            path: normalizedPath,
                             type: 'file'
                         });
                     }
@@ -656,6 +693,65 @@ export class ProjectService {
         await vscode.commands.executeCommand('vscode.open', uri);
     }
 
+    private async copyStructurePath(relativePath: string): Promise<void> {
+        if (!this.structureState) {
+            return;
+        }
+
+        const text = relativePath?.trim()
+            ? relativePath.replace(/\\/g, '/')
+            : this.structureState.rootPath;
+
+        await vscode.env.clipboard.writeText(text);
+        vscode.window.showInformationMessage(`已复制：${text}`);
+    }
+
+    private async exportStructureAsText(): Promise<void> {
+        if (!this.structureState) {
+            return;
+        }
+
+        const data = this.buildProjectStructureData(this.structureState);
+        const text = this.renderStructureTextTree(data);
+        const doc = await vscode.workspace.openTextDocument({ content: text, language: 'text' });
+        await vscode.window.showTextDocument(doc, { preview: false, viewColumn: vscode.ViewColumn.Beside });
+    }
+
+    private renderStructureTextTree(data: StructureData): string {
+        const lines: string[] = [];
+        lines.push(data.rootName || path.basename(data.rootPath));
+
+        const walk = (nodes: StructureNode[], prefix: string) => {
+            nodes.forEach((node, index) => {
+                const isLast = index === nodes.length - 1;
+                const connector = isLast ? '└── ' : '├── ';
+                const label = node.type === 'dir' ? `${node.name}/` : node.name;
+                lines.push(`${prefix}${connector}${label}`);
+
+                if (node.type === 'dir' && node.children?.length) {
+                    const nextPrefix = isLast ? `${prefix}    ` : `${prefix}│   `;
+                    walk(node.children, nextPrefix);
+                }
+            });
+        };
+
+        walk(data.nodes, '');
+        return lines.join('\n');
+    }
+
+    private getGitignoreMatcher(rootPath: string): GitignoreMatcher {
+        const cached = this.gitignoreCache.get(rootPath);
+        if (cached) {
+            return cached;
+        }
+
+        const gitignorePath = path.join(rootPath, '.gitignore');
+        const content = fs.existsSync(gitignorePath) ? fs.readFileSync(gitignorePath, 'utf8') : '';
+        const matcher = new GitignoreMatcher(content);
+        this.gitignoreCache.set(rootPath, matcher);
+        return matcher;
+    }
+
     private shouldSkipEntry(name: string): boolean {
         const defaults = new Set(['node_modules', '.git', '.DS_Store', 'dist', 'build', 'out', 'coverage']);
         return defaults.has(name);
@@ -667,6 +763,7 @@ type ProjectStructureState = {
     rootName: string;
     includeFiles: boolean;
     showHidden: boolean;
+    useGitignore: boolean;
     maxDepth: number;
     filter: string;
 };
@@ -688,3 +785,83 @@ type StructureData = {
         truncated: boolean;
     };
 };
+
+class GitignoreMatcher {
+    private rules: Array<{ negated: boolean; dirOnly: boolean; regex: RegExp }> = [];
+
+    constructor(content: string) {
+        this.rules = this.parse(content);
+    }
+
+    public isIgnored(pathPosix: string, isDir: boolean): boolean {
+        const pathValue = (pathPosix || '').replace(/\\/g, '/').replace(/^\/+/, '').replace(/\/+$/, '');
+        if (!pathValue) {
+            return false;
+        }
+
+        let ignored = false;
+        for (const rule of this.rules) {
+            if (rule.dirOnly) {
+                if (!rule.regex.test(pathValue) && !rule.regex.test(`${pathValue}/`)) {
+                    continue;
+                }
+            } else if (!rule.regex.test(pathValue)) {
+                continue;
+            }
+
+            // Dir-only rules should also apply to files under that directory; handled via regex.
+            ignored = !rule.negated;
+        }
+
+        if (!ignored) {
+            return false;
+        }
+
+        // If ignored but explicitly a directory-only ignore and we're checking directory itself, still ignore.
+        return ignored && (isDir ? true : true);
+    }
+
+    private parse(content: string): Array<{ negated: boolean; dirOnly: boolean; regex: RegExp }> {
+        const lines = (content || '').split(/\r?\n/);
+        const rules: Array<{ negated: boolean; dirOnly: boolean; regex: RegExp }> = [];
+
+        for (const rawLine of lines) {
+            const line = rawLine.trim();
+            if (!line || line.startsWith('#')) {
+                continue;
+            }
+
+            const negated = line.startsWith('!');
+            const patternRaw = (negated ? line.slice(1) : line).trim();
+            if (!patternRaw) {
+                continue;
+            }
+
+            const dirOnly = patternRaw.endsWith('/');
+            const pattern = dirOnly ? patternRaw.slice(0, -1) : patternRaw;
+            const regex = this.compile(pattern, dirOnly);
+            rules.push({ negated, dirOnly, regex });
+        }
+
+        return rules;
+    }
+
+    private compile(pattern: string, dirOnly: boolean): RegExp {
+        const anchored = pattern.startsWith('/');
+        const raw = anchored ? pattern.slice(1) : pattern;
+        const hasSlash = raw.includes('/');
+        const escaped = this.escapeRegex(raw);
+        const globbed = escaped
+            .replace(/\\\*\\\*/g, '.*')
+            .replace(/\\\*/g, '[^/]*')
+            .replace(/\\\?/g, '[^/]');
+
+        const prefix = anchored ? '^' : hasSlash ? '^(?:.*/)?' : '^(?:.*/)?';
+        const suffix = dirOnly ? '(?:/.*)?$' : '$';
+        return new RegExp(`${prefix}${globbed}${suffix}`);
+    }
+
+    private escapeRegex(value: string): string {
+        return value.replace(/[.+^${}()|[\]\\]/g, '\\$&');
+    }
+}
