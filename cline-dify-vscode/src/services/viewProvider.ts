@@ -396,7 +396,7 @@ export class FeaturesViewProvider implements vscode.WebviewViewProvider {
                 <h1>Features</h1>
 
                 <h2>Settings</h2>
-                <div class="feature-card" onclick="executeCommand('cline-dify-assistant.configureSettings')">
+                <div class="feature-card" data-command="cline-dify-assistant.configureSettings">
                     <div class="feature-title">Configure Assistant</div>
                     <div class="feature-description">Update API keys, provider, and model without opening the sidebar</div>
                     <div class="feature-command">cline-dify-assistant.configureSettings</div>
@@ -404,19 +404,19 @@ export class FeaturesViewProvider implements vscode.WebviewViewProvider {
 
                 <h2>Core Features</h2>
                 
-                <div class="feature-card" onclick="executeCommand('cline-dify-assistant.generateCode')">
+                <div class="feature-card" data-command="cline-dify-assistant.generateCode">
                     <div class="feature-title">Generate Code</div>
                     <div class="feature-description">Generate code based on natural language descriptions</div>
                     <div class="feature-command">cline-dify-assistant.generateCode</div>
                 </div>
 
-                <div class="feature-card" onclick="executeCommand('cline-dify-assistant.explainCode')">
+                <div class="feature-card" data-command="cline-dify-assistant.explainCode">
                     <div class="feature-title">Explain Code</div>
                     <div class="feature-description">Explain selected code in plain English</div>
                     <div class="feature-command">cline-dify-assistant.explainCode</div>
                 </div>
 
-                <div class="feature-card" onclick="executeCommand('cline-dify-assistant.improveCode')">
+                <div class="feature-card" data-command="cline-dify-assistant.improveCode">
                     <div class="feature-title">Improve Code</div>
                     <div class="feature-description">Suggest improvements to selected code</div>
                     <div class="feature-command">cline-dify-assistant.improveCode</div>
@@ -424,43 +424,43 @@ export class FeaturesViewProvider implements vscode.WebviewViewProvider {
 
                 <h2>Project Management</h2>
                 
-                <div class="feature-card" onclick="executeCommand('cline-dify-assistant.generateDirectoryStructure')">
+                <div class="feature-card" data-command="cline-dify-assistant.generateDirectoryStructure">
                     <div class="feature-title">Generate Directory Structure</div>
                     <div class="feature-description">Create directories and files based on input patterns</div>
                     <div class="feature-command">cline-dify-assistant.generateDirectoryStructure</div>
                 </div>
 
-                <div class="feature-card" onclick="executeCommand('cline-dify-assistant.executeCommand')">
+                <div class="feature-card" data-command="cline-dify-assistant.executeCommand">
                     <div class="feature-title">Execute Command Line</div>
                     <div class="feature-description">Run terminal commands within VS Code</div>
                     <div class="feature-command">cline-dify-assistant.executeCommand</div>
                 </div>
 
-                <div class="feature-card" onclick="executeCommand('cline-dify-assistant.showProjectStructure')">
+                <div class="feature-card" data-command="cline-dify-assistant.showProjectStructure">
                     <div class="feature-title">Show Project Structure</div>
                     <div class="feature-description">Display project file hierarchy</div>
                     <div class="feature-command">cline-dify-assistant.showProjectStructure</div>
                 </div>
 
-                <div class="feature-card" onclick="executeCommand('cline-dify-assistant.readFileContent')">
+                <div class="feature-card" data-command="cline-dify-assistant.readFileContent">
                     <div class="feature-title">Read File Content</div>
                     <div class="feature-description">View file contents without opening</div>
                     <div class="feature-command">cline-dify-assistant.readFileContent</div>
                 </div>
 
-                <div class="feature-card" onclick="executeCommand('cline-dify-assistant.openChangeTracker')">
+                <div class="feature-card" data-command="cline-dify-assistant.openChangeTracker">
                     <div class="feature-title">Code Change Tracker</div>
                     <div class="feature-description">Track git status and diff inside a panel</div>
                     <div class="feature-command">cline-dify-assistant.openChangeTracker</div>
                 </div>
 
-                <div class="feature-card" onclick="executeCommand('cline-dify-assistant.insertCodeCitation')">
+                <div class="feature-card" data-command="cline-dify-assistant.insertCodeCitation">
                     <div class="feature-title">Insert Code Citation</div>
                     <div class="feature-description">引用文件或代码片段到当前编辑器</div>
                     <div class="feature-command">cline-dify-assistant.insertCodeCitation</div>
                 </div>
 
-                <div class="feature-card" onclick="executeCommand('cline-dify-assistant.runMcpQuery')">
+                <div class="feature-card" data-command="cline-dify-assistant.runMcpQuery">
                     <div class="feature-title">Run MCP Query</div>
                     <div class="feature-description">通过 MCP 服务获取上下文数据</div>
                     <div class="feature-command">cline-dify-assistant.runMcpQuery</div>
@@ -468,13 +468,13 @@ export class FeaturesViewProvider implements vscode.WebviewViewProvider {
 
                 <h2>Dual-Role Generator</h2>
                 
-                <div class="feature-card" onclick="executeCommand('cline-dify-assistant.startDualRoleGenerator')">
+                <div class="feature-card" data-command="cline-dify-assistant.startDualRoleGenerator">
                     <div class="feature-title">Start Dual-Role Generator</div>
                     <div class="feature-description">Generate documentation and code from project description</div>
                     <div class="feature-command">cline-dify-assistant.startDualRoleGenerator</div>
                 </div>
 
-                <div class="feature-card" onclick="executeCommand('cline-dify-assistant.debugGeneratedCode')">
+                <div class="feature-card" data-command="cline-dify-assistant.debugGeneratedCode">
                     <div class="feature-title">Debug Generated Code</div>
                     <div class="feature-description">Run test commands to verify generated code</div>
                     <div class="feature-command">cline-dify-assistant.debugGeneratedCode</div>
@@ -484,8 +484,22 @@ export class FeaturesViewProvider implements vscode.WebviewViewProvider {
                     const vscode = acquireVsCodeApi();
 
                     function executeCommand(command) {
-                        vscode.postMessage({ type: 'executeCommand', command: command });
+                        if (!command) { return; }
+                        vscode.postMessage({ type: 'executeCommand', command });
                     }
+
+                    document.querySelectorAll('.feature-card').forEach(card => {
+                        card.addEventListener('click', () => {
+                            executeCommand(card.getAttribute('data-command'));
+                        });
+                        card.setAttribute('tabindex', '0');
+                        card.addEventListener('keydown', (event) => {
+                            if (event.key === 'Enter' || event.key === ' ') {
+                                event.preventDefault();
+                                executeCommand(card.getAttribute('data-command'));
+                            }
+                        });
+                    });
                 </script>
             </body>
             </html>`;
