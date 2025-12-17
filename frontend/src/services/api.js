@@ -92,6 +92,19 @@ export const fetchOvertimeRecords = async () => {
   }
 };
 
+// 分页查询加班记录
+export const fetchOvertimeRecordsByPage = async (page = 1, pageSize = 10, search = '') => {
+  try {
+    const response = await axiosInstance.get('/overtime-records/page', {
+      params: { page, pageSize, search }
+    });
+    return response.data;
+  } catch (error) {
+    console.error('Error fetching overtime records by page:', error);
+    throw error;
+  }
+};
+
 // 异常工时指标相关API
 export const fetchExceptionalHoursIndicators = async () => {
   try {
@@ -110,6 +123,19 @@ export const fetchExceptionalHoursRecords = async () => {
     return response.data;
   } catch (error) {
     console.error('Error fetching exceptional hours records:', error);
+    throw error;
+  }
+};
+
+// 分页查询异常工时记录
+export const fetchExceptionalHoursRecordsByPage = async (page = 1, pageSize = 10, search = '') => {
+  try {
+    const response = await axiosInstance.get('/exceptional-hours/records/page', {
+      params: { page, pageSize, search }
+    });
+    return response.data;
+  } catch (error) {
+    console.error('Error fetching exceptional hours records by page:', error);
     throw error;
   }
 };
@@ -186,6 +212,19 @@ export const fetchLeaveRecords = async () => {
   }
 };
 
+// 分页查询请假记录
+export const fetchLeaveRecordsByPage = async (page = 1, pageSize = 10, search = '') => {
+  try {
+    const response = await axiosInstance.get('/leave-records/page', {
+      params: { page, pageSize, search }
+    });
+    return response.data;
+  } catch (error) {
+    console.error('Error fetching leave records by page:', error);
+    throw error;
+  }
+};
+
 export const fetchLeaveRecordsByEmployee = async (employeeId) => {
   try {
     const response = await axiosInstance.get(`/leave-records/employee/${employeeId}`);
@@ -253,6 +292,88 @@ export const executeSqlQuery = async (sql, originalQuery) => {
     return response.data;
   } catch (error) {
     console.error('Error executing SQL query:', error);
+    throw error;
+  }
+};
+
+// 报表生成相关API
+export const generateReport = async (query) => {
+  try {
+    console.log('调用报表生成API，URL: /reports/generate，查询语句:', query);
+    const response = await axiosInstance.post('/reports/generate', { query });
+    console.log('报表生成API调用成功，状态码:', response.status, '返回数据:', response.data);
+    return response.data;
+  } catch (error) {
+    console.error('报表生成API调用失败:', error);
+    if (error.response) {
+      console.error('响应状态:', error.response.status);
+      console.error('响应数据:', error.response.data);
+      console.error('响应头:', error.response.headers);
+    } else if (error.request) {
+      console.error('没有收到响应:', error.request);
+    } else {
+      console.error('请求配置错误:', error.message);
+    }
+    throw error;
+  }
+};
+
+export const getReportHistory = async () => {
+  try {
+    console.log('调用获取历史报表API，URL: /reports/history');
+    const response = await axiosInstance.get('/reports/history');
+    console.log('获取历史报表API调用成功，状态码:', response.status, '返回数据数量:', response.data?.length || 0);
+    return response.data;
+  } catch (error) {
+    console.error('获取历史报表API调用失败:', error);
+    if (error.response) {
+      console.error('响应状态:', error.response.status);
+      console.error('响应数据:', error.response.data);
+    } else if (error.request) {
+      console.error('没有收到响应:', error.request);
+    } else {
+      console.error('请求配置错误:', error.message);
+    }
+    throw error;
+  }
+};
+
+export const getReportById = async (reportId) => {
+  try {
+    console.log('调用获取报表详情API，URL: /reports/', reportId);
+    const response = await axiosInstance.get(`/reports/${reportId}`);
+    console.log('获取报表详情API调用成功，状态码:', response.status, '返回数据:', response.data?.id);
+    return response.data;
+  } catch (error) {
+    console.error(`获取报表详情API调用失败，ID: ${reportId}:`, error);
+    if (error.response) {
+      console.error('响应状态:', error.response.status);
+      console.error('响应数据:', error.response.data);
+    } else if (error.request) {
+      console.error('没有收到响应:', error.request);
+    } else {
+      console.error('请求配置错误:', error.message);
+    }
+    throw error;
+  }
+};
+
+export const deleteReport = async (reportId) => {
+  try {
+    console.log('调用删除报表API，URL: /reports/', reportId);
+    const response = await axiosInstance.delete(`/reports/${reportId}`);
+    console.log('删除报表API调用成功，状态码:', response.status);
+    return response.data;
+  } catch (error) {
+    console.error(`删除报表API调用失败，ID: ${reportId}:`, error);
+    if (error.response) {
+      console.error('响应状态:', error.response.status);
+      console.error('响应数据:', error.response.data);
+    } else if (error.request) {
+      console.error('没有收到响应:', error.request);
+    } else {
+      console.error('请求配置错误:', error.message);
+    }
     throw error;
   }
 };

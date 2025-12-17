@@ -1,5 +1,7 @@
 package com.example.flinkmonitorbackend.service.impl;
 
+import com.example.flinkmonitorbackend.dto.PageRequest;
+import com.example.flinkmonitorbackend.dto.PageResponse;
 import com.example.flinkmonitorbackend.entity.ExceptionalHoursRecord;
 import com.example.flinkmonitorbackend.mapper.ExceptionalHoursRecordMapper;
 import com.example.flinkmonitorbackend.service.ExceptionalHoursRecordService;
@@ -80,5 +82,21 @@ public class ExceptionalHoursRecordServiceImpl implements ExceptionalHoursRecord
         record.setApprovedAt(new Date());
         record.setUpdatedAt(new Date());
         exceptionalHoursRecordMapper.update(record);
+    }
+    
+    @Override
+    public PageResponse<ExceptionalHoursRecord> findByPage(PageRequest pageRequest) {
+        // 计算分页参数
+        int offset = (pageRequest.getPage() - 1) * pageRequest.getPageSize();
+        int limit = pageRequest.getPageSize();
+        
+        // 查询数据列表
+        List<ExceptionalHoursRecord> records = exceptionalHoursRecordMapper.findByPage(pageRequest.getSearch(), offset, limit);
+        
+        // 查询总记录数
+        long total = exceptionalHoursRecordMapper.countBySearch(pageRequest.getSearch());
+        
+        // 构建分页响应
+        return new PageResponse<>(total, pageRequest.getPage(), pageRequest.getPageSize(), records);
     }
 }

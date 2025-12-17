@@ -1,5 +1,7 @@
 package com.example.flinkmonitorbackend.controller;
 
+import com.example.flinkmonitorbackend.dto.PageRequest;
+import com.example.flinkmonitorbackend.dto.PageResponse;
 import com.example.flinkmonitorbackend.entity.LeaveRecord;
 import com.example.flinkmonitorbackend.service.LeaveRecordService;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -25,6 +27,22 @@ public class LeaveRecordController {
     public ResponseEntity<List<LeaveRecord>> findAll() {
         try {
             return ResponseEntity.ok(leaveRecordService.findAll());
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(null);
+        }
+    }
+    
+    @GetMapping("/page")
+    public ResponseEntity<PageResponse<LeaveRecord>> findByPage(
+            @RequestParam(defaultValue = "1") int page,
+            @RequestParam(defaultValue = "10") int pageSize,
+            @RequestParam(required = false) String search) {
+        try {
+            PageRequest pageRequest = new PageRequest();
+            pageRequest.setPage(page);
+            pageRequest.setPageSize(pageSize);
+            pageRequest.setSearch(search);
+            return ResponseEntity.ok(leaveRecordService.findByPage(pageRequest));
         } catch (Exception e) {
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(null);
         }

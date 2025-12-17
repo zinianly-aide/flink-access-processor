@@ -143,10 +143,16 @@ DROP TABLE IF EXISTS hrbp_leave_record;
 CREATE TABLE hrbp_leave_record (
     id          BIGINT AUTO_INCREMENT PRIMARY KEY,
     emp_id      BIGINT NOT NULL,
+    org_id      BIGINT NULL,           -- 组织ID
+    leave_type  VARCHAR(50) NULL,      -- 事假/病假/年假等
     start_time  DATETIME NOT NULL,     -- 请假开始
     end_time    DATETIME NOT NULL,     -- 请假结束
-    leave_type  VARCHAR(50) NULL,      -- 事假/病假/年假等
-    KEY idx_emp_time (emp_id, start_time)
+    leave_hours DOUBLE NULL,           -- 请假小时数
+    status      VARCHAR(50) NULL,      -- 请假状态
+    created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP, -- 创建时间
+    updated_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP, -- 更新时间
+    KEY idx_emp_time (emp_id, start_time),
+    KEY idx_org_id (org_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- =========================================
@@ -221,10 +227,10 @@ VALUES
 (1002, '2025-01-11 15:00:00', '2025-01-11 18:00:00', 'GATE-B');
 
 -- ========== 请假数据 ==========
-INSERT INTO hrbp_leave_record (emp_id, start_time, end_time, leave_type)
+INSERT INTO hrbp_leave_record (emp_id, org_id, start_time, end_time, leave_type, leave_hours)
 VALUES
--- 员工 1002：2025-01-11 中间请假 13:00-15:00
-(1002, '2025-01-11 13:00:00', '2025-01-11 15:00:00', '事假');
+-- 员工 1002（技术部）：2025-01-11 中间请假 13:00-15:00
+(1002, 1, '2025-01-11 13:00:00', '2025-01-11 15:00:00', '事假', 2.0);
 
 -- 员工 1001：2025-01-10 / 01-11 无请假，不插记录
 

@@ -24,6 +24,38 @@
     
     <!-- 部门净加班汇总查询（加班小时数 - 请假小时数） -->
     <select id="getDeptNetOvertimeSummary" resultType="map">
-        SELECT o.id AS org_id, o.org_name, o.org_code, COALESCE(ot.overtime_hours, 0) AS total_overtime_hours, COALESCE(l.leave_hours, 0) AS total_leave_hours, (COALESCE(ot.overtime_hours, 0) - COALESCE(l.leave_hours, 0)) AS net_overtime_hours FROM organizations o LEFT JOIN (SELECT org_id, SUM(overtime_hours) AS overtime_hours FROM overtime_records GROUP BY org_id) ot ON o.id = ot.org_id LEFT JOIN (SELECT org_id, SUM(leave_hours) AS leave_hours FROM hrbp_leave_record GROUP BY org_id) l ON o.id = l.org_id ORDER BY net_overtime_hours DESC
+        SELECT o.id AS org_id, o.org_name, o.org_code, COALESCE(ot.overtime_hours, 0) AS total_overtime_hours, COALESCE(l.leave_hours, 0) AS total_leave_hours, (COALESCE(ot.overtime_hours, 0) - COALESCE(l.leave_hours, 0)) AS net_overtime_hours FROM organizations o LEFT JOIN (SELECT lr.org_id, SUM(ot.overtime_hours) AS overtime_hours FROM overtime_records ot JOIN hrbp_leave_record lr ON ot.emp_id = lr.emp_id GROUP BY lr.org_id) ot ON o.id = ot.org_id LEFT JOIN (SELECT org_id, SUM(leave_hours) AS leave_hours FROM hrbp_leave_record GROUP BY org_id) l ON o.id = l.org_id ORDER BY net_overtime_hours DESC
+    </select>
+    
+    <!-- 分页查询请假记录，支持搜索 -->
+    <select id="findByPage" resultType="com.example.flinkmonitorbackend.entity.LeaveRecord">
+        SELECT * FROM hrbp_leave_record
+        <where>
+            <if test="search != null and search != ''">
+                AND (emp_id LIKE CONCAT('%', #{search}, '%') 
+                     OR leave_type LIKE CONCAT('%', #{search}, '%') 
+                     OR start_time LIKE CONCAT('%', #{search}, '%') 
+                     OR end_time LIKE CONCAT('%', #{search}, '%') 
+                     OR leave_hours LIKE CONCAT('%', #{search}, '%') 
+                     OR status LIKE CONCAT('%', #{search}, '%'))
+            </if>
+        </where>
+        ORDER BY start_time DESC
+        LIMIT #{offset}, #{limit}
+    </select>
+    
+    <!-- 统计符合搜索条件的请假记录总数 -->
+    <select id="countBySearch" resultType="java.lang.Long">
+        SELECT COUNT(*) FROM hrbp_leave_record
+        <where>
+            <if test="search != null and search != ''">
+                AND (emp_id LIKE CONCAT('%', #{search}, '%') 
+                     OR leave_type LIKE CONCAT('%', #{search}, '%') 
+                     OR start_time LIKE CONCAT('%', #{search}, '%') 
+                     OR end_time LIKE CONCAT('%', #{search}, '%') 
+                     OR leave_hours LIKE CONCAT('%', #{search}, '%') 
+                     OR status LIKE CONCAT('%', #{search}, '%'))
+            </if>
+        </where>
     </select>
 </mapper>

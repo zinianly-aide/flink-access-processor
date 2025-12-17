@@ -1,22 +1,28 @@
 import React, { useState, useEffect } from 'react';
-import { Table, Card, Button, message, DatePicker, Space } from 'antd';
-import { DownloadOutlined } from '@ant-design/icons';
-import { fetchOvertimeRecords } from '../services/api';
+import { Table, Card, Button, message, DatePicker, Space, Input, Row, Col } from 'antd';
+import { DownloadOutlined, SearchOutlined } from '@ant-design/icons';
+import { fetchOvertimeRecordsByPage } from '../services/api';
 
 const { RangePicker } = DatePicker;
+const { Search } = Input;
 
 const OvertimeRecords = () => {
   const [overtimeRecords, setOvertimeRecords] = useState([]);
   const [loading, setLoading] = useState(true);
   const [dateRange, setDateRange] = useState([]);
+  const [searchText, setSearchText] = useState('');
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
+  const [total, setTotal] = useState(0);
 
   // 获取加班记录
   useEffect(() => {
     const loadOvertimeRecords = async () => {
       try {
         setLoading(true);
-        const data = await fetchOvertimeRecords();
-        setOvertimeRecords(data);
+        const data = await fetchOvertimeRecordsByPage(currentPage, pageSize, searchText);
+        setOvertimeRecords(data.data);
+        setTotal(data.total);
       } catch (error) {
         message.error('获取加班记录失败');
       } finally {
@@ -25,12 +31,24 @@ const OvertimeRecords = () => {
     };
 
     loadOvertimeRecords();
-  }, []);
+  }, [currentPage, pageSize, searchText]);
 
   // 处理日期范围变化
   const handleDateRangeChange = (dates) => {
     setDateRange(dates);
     // 这里可以添加根据日期范围过滤数据的逻辑
+  };
+
+  // 处理搜索
+  const handleSearch = (value) => {
+    setSearchText(value);
+    setCurrentPage(1); // 搜索时重置到第一页
+  };
+
+  // 处理分页变化
+  const handlePaginationChange = (page, size) => {
+    setCurrentPage(page);
+    setPageSize(size);
   };
 
   // 导出Excel功能
@@ -135,15 +153,33 @@ const OvertimeRecords = () => {
         </Space>
       }
     >
+      {/* 搜索区域 */}
+      <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
+        <Col span={8}>
+          <Search
+            placeholder="搜索所有字段..."
+            allowClear
+            enterButton={<SearchOutlined />}
+            size="middle"
+            onSearch={handleSearch}
+            onChange={(e) => setSearchText(e.target.value)}
+          />
+        </Col>
+      </Row>
+      
       <Table
         columns={overtimeColumns}
         dataSource={overtimeRecords}
         rowKey="id"
         loading={loading}
         pagination={{
-          pageSize: 10,
+          current: currentPage,
+          pageSize: pageSize,
+          total: total,
           showSizeChanger: true,
           showTotal: (total) => `共 ${total} 条记录`,
+          onChange: handlePaginationChange,
+          onShowSizeChange: handlePaginationChange,
         }}
         scroll={{ x: 800 }}
       />

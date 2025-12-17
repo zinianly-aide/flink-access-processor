@@ -80,45 +80,44 @@ const ConsecutiveWorkDays = () => {
   const consecutiveColumns = [
     {
       title: '员工ID',
-      dataIndex: 'employeeId',
-      key: 'employeeId',
+      dataIndex: 'employee_id',
+      key: 'employee_id',
       width: 120,
-      sorter: (a, b) => a.employeeId.localeCompare(b.employeeId),
+      sorter: (a, b) => a.employee_id.localeCompare(b.employee_id),
     },
     {
       title: '连续工作天数',
-      dataIndex: 'consecutiveDays',
-      key: 'consecutiveDays',
+      dataIndex: 'consecutive_days',
+      key: 'consecutive_days',
       width: 150,
       render: (days) => (
         <Tag color={days > 6 ? 'red' : 'blue'}>
           {days} 天
         </Tag>
       ),
-      sorter: (a, b) => a.consecutiveDays - b.consecutiveDays,
+      sorter: (a, b) => a.consecutive_days - b.consecutive_days,
     },
     {
       title: '开始日期',
-      dataIndex: 'startDate',
-      key: 'startDate',
+      dataIndex: 'start_date',
+      key: 'start_date',
       width: 150,
       render: (date) => new Date(date).toLocaleDateString(),
-      sorter: (a, b) => new Date(a.startDate) - new Date(b.startDate),
+      sorter: (a, b) => new Date(a.start_date) - new Date(b.start_date),
     },
     {
       title: '结束日期',
-      dataIndex: 'endDate',
-      key: 'endDate',
+      dataIndex: 'end_date',
+      key: 'end_date',
       width: 150,
       render: (date) => new Date(date).toLocaleDateString(),
-      sorter: (a, b) => new Date(a.endDate) - new Date(b.endDate),
+      sorter: (a, b) => new Date(a.end_date) - new Date(b.end_date),
     },
-    {
-      title: '操作',
+    {title: '操作',
       key: 'action',
       width: 120,
       render: (_, record) => (
-        <Button type="primary" size="small" onClick={() => viewAccessRecords(record.employeeId)}>
+        <Button type="primary" size="small" onClick={() => viewAccessRecords(record.employee_id)}>
           查看原始记录
         </Button>
       ),

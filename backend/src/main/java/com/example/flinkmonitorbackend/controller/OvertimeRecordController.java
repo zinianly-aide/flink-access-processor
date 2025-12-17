@@ -1,5 +1,7 @@
 package com.example.flinkmonitorbackend.controller;
 
+import com.example.flinkmonitorbackend.dto.PageRequest;
+import com.example.flinkmonitorbackend.dto.PageResponse;
 import com.example.flinkmonitorbackend.entity.OvertimeRecord;
 import com.example.flinkmonitorbackend.service.OvertimeRecordService;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -25,20 +27,48 @@ public class OvertimeRecordController {
     private OvertimeRecordService overtimeRecordService;
 
     @GetMapping
-    public List<OvertimeRecord> findAll() {
-        return overtimeRecordService.findAll();
+    public ResponseEntity<List<OvertimeRecord>> findAll() {
+        try {
+            return ResponseEntity.ok(overtimeRecordService.findAll());
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(null);
+        }
+    }
+    
+    @GetMapping("/page")
+    public ResponseEntity<PageResponse<OvertimeRecord>> findByPage(
+            @RequestParam(defaultValue = "1") int page,
+            @RequestParam(defaultValue = "10") int pageSize,
+            @RequestParam(required = false) String search) {
+        try {
+            PageRequest pageRequest = new PageRequest();
+            pageRequest.setPage(page);
+            pageRequest.setPageSize(pageSize);
+            pageRequest.setSearch(search);
+            return ResponseEntity.ok(overtimeRecordService.findByPage(pageRequest));
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(null);
+        }
     }
 
     @GetMapping("/employee/{empId}")
-    public List<OvertimeRecord> findByEmployeeId(@PathVariable Long empId) {
-        return overtimeRecordService.findByEmpId(empId);
+    public ResponseEntity<List<OvertimeRecord>> findByEmployeeId(@PathVariable Long empId) {
+        try {
+            return ResponseEntity.ok(overtimeRecordService.findByEmpId(empId));
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(null);
+        }
     }
 
     @GetMapping("/date-range")
-    public List<OvertimeRecord> findByDateRange(
+    public ResponseEntity<List<OvertimeRecord>> findByDateRange(
             @RequestParam String startDate,
             @RequestParam String endDate) {
-        return overtimeRecordService.findByDateRange(startDate, endDate);
+        try {
+            return ResponseEntity.ok(overtimeRecordService.findByDateRange(startDate, endDate));
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(null);
+        }
     }
 
     @GetMapping("/export/excel")

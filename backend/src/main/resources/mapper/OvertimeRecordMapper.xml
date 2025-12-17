@@ -10,4 +10,32 @@
     <select id="findByDateRange" resultType="com.example.flinkmonitorbackend.entity.OvertimeRecord">
         SELECT * FROM overtime_records WHERE work_date BETWEEN #{startDate} AND #{endDate} ORDER BY work_date DESC
     </select>
+    
+    <select id="findByPage" resultType="com.example.flinkmonitorbackend.entity.OvertimeRecord">
+        SELECT * FROM overtime_records
+        <where>
+            <if test="search != null and search != ''">
+                AND (emp_id LIKE CONCAT('%', #{search}, '%') 
+                     OR work_date LIKE CONCAT('%', #{search}, '%') 
+                     OR actual_hours LIKE CONCAT('%', #{search}, '%') 
+                     OR regular_hours LIKE CONCAT('%', #{search}, '%') 
+                     OR overtime_hours LIKE CONCAT('%', #{search}, '%'))
+            </if>
+        </where>
+        ORDER BY work_date DESC
+        LIMIT #{offset}, #{limit}
+    </select>
+    
+    <select id="countBySearch" resultType="java.lang.Long">
+        SELECT COUNT(*) FROM overtime_records
+        <where>
+            <if test="search != null and search != ''">
+                AND (emp_id LIKE CONCAT('%', #{search}, '%') 
+                     OR work_date LIKE CONCAT('%', #{search}, '%') 
+                     OR actual_hours LIKE CONCAT('%', #{search}, '%') 
+                     OR regular_hours LIKE CONCAT('%', #{search}, '%') 
+                     OR overtime_hours LIKE CONCAT('%', #{search}, '%'))
+            </if>
+        </where>
+    </select>
 </mapper>

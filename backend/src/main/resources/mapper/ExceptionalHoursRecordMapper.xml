@@ -27,4 +27,40 @@
             approved_at = #{approvedAt}
         WHERE id = #{id}
     </update>
+    
+    <!-- 分页查询异常工时记录，支持搜索 -->
+    <select id="findByPage" resultType="com.example.flinkmonitorbackend.entity.ExceptionalHoursRecord">
+        SELECT * FROM exceptional_hours_records
+        <where>
+            <if test="search != null and search != ''">
+                AND (emp_id LIKE CONCAT('%', #{search}, '%') 
+                     OR indicator_name LIKE CONCAT('%', #{search}, '%') 
+                     OR indicator_type LIKE CONCAT('%', #{search}, '%') 
+                     OR actual_value LIKE CONCAT('%', #{search}, '%') 
+                     OR threshold LIKE CONCAT('%', #{search}, '%') 
+                     OR status LIKE CONCAT('%', #{search}, '%') 
+                     OR period_start LIKE CONCAT('%', #{search}, '%') 
+                     OR period_end LIKE CONCAT('%', #{search}, '%'))
+            </if>
+        </where>
+        ORDER BY created_at DESC
+        LIMIT #{offset}, #{limit}
+    </select>
+    
+    <!-- 统计符合搜索条件的异常工时记录总数 -->
+    <select id="countBySearch" resultType="java.lang.Long">
+        SELECT COUNT(*) FROM exceptional_hours_records
+        <where>
+            <if test="search != null and search != ''">
+                AND (emp_id LIKE CONCAT('%', #{search}, '%') 
+                     OR indicator_name LIKE CONCAT('%', #{search}, '%') 
+                     OR indicator_type LIKE CONCAT('%', #{search}, '%') 
+                     OR actual_value LIKE CONCAT('%', #{search}, '%') 
+                     OR threshold LIKE CONCAT('%', #{search}, '%') 
+                     OR status LIKE CONCAT('%', #{search}, '%') 
+                     OR period_start LIKE CONCAT('%', #{search}, '%') 
+                     OR period_end LIKE CONCAT('%', #{search}, '%'))
+            </if>
+        </where>
+    </select>
 </mapper>

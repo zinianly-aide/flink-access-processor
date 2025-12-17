@@ -17,6 +17,8 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import com.example.flinkmonitorbackend.dto.PageRequest;
+import com.example.flinkmonitorbackend.dto.PageResponse;
 import com.example.flinkmonitorbackend.utils.ExcelExporter;
 
 import java.util.List;
@@ -32,6 +34,22 @@ public class ExceptionalHoursRecordController {
     public ResponseEntity<List<ExceptionalHoursRecord>> findAll() {
         try {
             return ResponseEntity.ok(exceptionalHoursRecordService.findAll());
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(null);
+        }
+    }
+
+    @GetMapping("/page")
+    public ResponseEntity<PageResponse<ExceptionalHoursRecord>> findByPage(
+            @RequestParam(defaultValue = "1") int page,
+            @RequestParam(defaultValue = "10") int pageSize,
+            @RequestParam(required = false) String search) {
+        try {
+            PageRequest pageRequest = new PageRequest();
+            pageRequest.setPage(page);
+            pageRequest.setPageSize(pageSize);
+            pageRequest.setSearch(search);
+            return ResponseEntity.ok(exceptionalHoursRecordService.findByPage(pageRequest));
         } catch (Exception e) {
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(null);
         }

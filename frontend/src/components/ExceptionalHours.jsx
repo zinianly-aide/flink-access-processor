@@ -1,14 +1,15 @@
 import React, { useState, useEffect } from 'react';
-import { Table, Card, Modal, Form, Input, Button, message, Upload, Switch, Space, Select, Checkbox } from 'antd';
-import { UploadOutlined, EditOutlined, CheckOutlined, CloseOutlined, DownloadOutlined, PlusOutlined } from '@ant-design/icons';
+import { Table, Card, Modal, Form, Input, Button, message, Upload, Switch, Space, Select, Checkbox, Row, Col } from 'antd';
+import { UploadOutlined, EditOutlined, CheckOutlined, CloseOutlined, DownloadOutlined, PlusOutlined, SearchOutlined } from '@ant-design/icons';
 import {
-  fetchExceptionalHoursRecords,
+  fetchExceptionalHoursRecordsByPage,
   submitExceptionalHoursReason,
   approveExceptionalHoursRecord
 } from '../services/api';
 
 const { TextArea } = Input;
 const { Option } = Select;
+const { Search } = Input;
 
 const ExceptionalHours = () => {
   const [exceptionalRecords, setExceptionalRecords] = useState([]);
@@ -17,20 +18,26 @@ const ExceptionalHours = () => {
   const [isBatchModalVisible, setIsBatchModalVisible] = useState(false);
   const [selectedRecord, setSelectedRecord] = useState(null);
   const [selectedRecords, setSelectedRecords] = useState([]);
+  const [selectedRowKeys, setSelectedRowKeys] = useState([]);
   const [form] = Form.useForm();
   const [batchForm] = Form.useForm();
   const [updateLoading, setUpdateLoading] = useState(false);
   const [approveLoading, setApproveLoading] = useState(false);
   const [batchLoading, setBatchLoading] = useState(false);
   const [statusFilter, setStatusFilter] = useState('all');
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
+  const [total, setTotal] = useState(0);
+  const [searchText, setSearchText] = useState('');
 
   // 获取异常工时记录
   useEffect(() => {
     const loadExceptionalRecords = async () => {
       try {
         setLoading(true);
-        const data = await fetchExceptionalHoursRecords();
-        setExceptionalRecords(data);
+        const data = await fetchExceptionalHoursRecordsByPage(currentPage, pageSize, searchText);
+        setExceptionalRecords(data.data);
+        setTotal(data.total);
       } catch (error) {
         message.error('获取异常工时记录失败');
       } finally {
@@ -39,7 +46,23 @@ const ExceptionalHours = () => {
     };
 
     loadExceptionalRecords();
-  }, []);
+  }, [currentPage, pageSize, searchText]);
+
+  // 处理搜索
+  const handleSearch = (value) => {
+    setSearchText(value);
+    setCurrentPage(1); // 搜索时重置到第一页
+    setSelectedRecords([]);
+    setSelectedRowKeys([]);
+  };
+
+  // 处理分页变化
+  const handlePaginationChange = (page, size) => {
+    setCurrentPage(page);
+    setPageSize(size);
+    setSelectedRecords([]);
+    setSelectedRowKeys([]);
+  };
 
   // 打开提交原因模态框
   const showReasonModal = (record) => {
@@ -72,9 +95,12 @@ const ExceptionalHours = () => {
       message.success('提交成功');
       handleCancel();
       
-      // 刷新数据
-      const data = await fetchExceptionalHoursRecords();
-      setExceptionalRecords(data);
+      // 刷新当前页数据
+      const data = await fetchExceptionalHoursRecordsByPage(currentPage, pageSize, searchText);
+      setExceptionalRecords(data.data);
+      setTotal(data.total);
+      setSelectedRecords([]);
+      setSelectedRowKeys([]);
     } catch (error) {
       message.error('提交失败');
     } finally {
@@ -89,9 +115,12 @@ const ExceptionalHours = () => {
       await approveExceptionalHoursRecord(record.id, 'HR');
       message.success('审批成功');
       
-      // 刷新数据
-      const data = await fetchExceptionalHoursRecords();
-      setExceptionalRecords(data);
+      // 刷新当前页数据
+      const data = await fetchExceptionalHoursRecordsByPage(currentPage, pageSize, searchText);
+      setExceptionalRecords(data.data);
+      setTotal(data.total);
+      setSelectedRecords([]);
+      setSelectedRowKeys([]);
     } catch (error) {
       message.error('审批失败');
     } finally {
@@ -107,6 +136,7 @@ const ExceptionalHours = () => {
 
   // 处理批量选择
   const handleBatchSelect = (selectedRowKeys, selectedRows) => {
+    setSelectedRowKeys(selectedRowKeys);
     setSelectedRecords(selectedRows);
   };
 
@@ -147,10 +177,12 @@ const ExceptionalHours = () => {
       message.success(`成功处理 ${selectedRecords.length} 条记录`);
       handleBatchCancel();
       
-      // 刷新数据
-      const data = await fetchExceptionalHoursRecords();
-      setExceptionalRecords(data);
+      // 刷新当前页数据
+      const data = await fetchExceptionalHoursRecordsByPage(currentPage, pageSize, searchText);
+      setExceptionalRecords(data.data);
+      setTotal(data.total);
       setSelectedRecords([]);
+      setSelectedRowKeys([]);
     } catch (error) {
       message.error('批量处理失败');
     } finally {
@@ -175,10 +207,12 @@ const ExceptionalHours = () => {
       
       message.success(`成功审批 ${selectedRecords.length} 条记录`);
       
-      // 刷新数据
-      const data = await fetchExceptionalHoursRecords();
-      setExceptionalRecords(data);
+      // 刷新当前页数据
+      const data = await fetchExceptionalHoursRecordsByPage(currentPage, pageSize, searchText);
+      setExceptionalRecords(data.data);
+      setTotal(data.total);
       setSelectedRecords([]);
+      setSelectedRowKeys([]);
     } catch (error) {
       message.error('批量审批失败');
     } finally {
@@ -225,13 +259,15 @@ const ExceptionalHours = () => {
     {
       title: (
         <Checkbox
-          indeterminate={selectedRecords.length > 0 && selectedRecords.length < exceptionalRecords.length}
-          checked={selectedRecords.length === exceptionalRecords.length}
+          indeterminate={selectedRecords.length > 0 && selectedRecords.length < filteredRecords.length}
+          checked={selectedRecords.length === filteredRecords.length && filteredRecords.length > 0}
           onChange={(e) => {
             if (e.target.checked) {
-              setSelectedRecords(exceptionalRecords);
+              setSelectedRecords(filteredRecords);
+              setSelectedRowKeys(filteredRecords.map(record => record.id));
             } else {
               setSelectedRecords([]);
+              setSelectedRowKeys([]);
             }
           }}
         />
@@ -245,8 +281,10 @@ const ExceptionalHours = () => {
           onChange={(e) => {
             if (e.target.checked) {
               setSelectedRecords([...selectedRecords, record]);
+              setSelectedRowKeys([...selectedRowKeys, record.id]);
             } else {
               setSelectedRecords(selectedRecords.filter(item => item.id !== record.id));
+              setSelectedRowKeys(selectedRowKeys.filter(id => id !== record.id));
             }
           }}
         />
@@ -390,19 +428,37 @@ const ExceptionalHours = () => {
         </Space>
       }
     >
+      {/* 搜索区域 */}
+      <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
+        <Col span={8}>
+          <Search
+            placeholder="搜索所有字段..."
+            allowClear
+            enterButton={<SearchOutlined />}
+            size="middle"
+            onSearch={handleSearch}
+            onChange={(e) => setSearchText(e.target.value)}
+          />
+        </Col>
+      </Row>
+      
       <Table
         columns={exceptionalColumns}
         dataSource={filteredRecords}
         rowKey="id"
         loading={loading}
         pagination={{
-          pageSize: 10,
+          current: currentPage,
+          pageSize: pageSize,
+          total: total,
           showSizeChanger: true,
           showTotal: (total) => `共 ${total} 条记录`,
+          onChange: handlePaginationChange,
+          onShowSizeChange: handlePaginationChange,
         }}
         scroll={{ x: 1000 }}
         rowSelection={{
-          selectedRowKeys: selectedRecords.map(record => record.id),
+          selectedRowKeys: selectedRowKeys,
           onChange: handleBatchSelect,
         }}
       />

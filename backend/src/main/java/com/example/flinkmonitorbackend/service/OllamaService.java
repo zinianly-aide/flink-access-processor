@@ -20,6 +20,7 @@ public class OllamaService {
                 .baseUrl("http://localhost:11434") // Ollama默认端口
                 .modelName("llama3.2:latest") // 使用本地可用的llama3.2模型
                 .temperature(0.1) // 低温度，生成更确定性的结果
+                .timeout(java.time.Duration.ofSeconds(60)) // 设置超时时间为60秒
                 .build();
     }
 
