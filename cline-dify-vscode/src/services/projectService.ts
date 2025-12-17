@@ -3,12 +3,22 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { spawn } from 'child_process';
 import { pickWorkspaceFolder } from './workspaceService';
+import { getDefaultCsp, getNonce } from './webviewSecurity';
 
 const SENSITIVE_TOKENS = ['rm ', 'rm-', 'mv ', 'sudo', 'chmod', 'chown', 'mkfs', ':(){', 'shutdown', 'reboot'];
 
 export class ProjectService {
     private context: vscode.ExtensionContext;
     private outputChannel: vscode.OutputChannel;
+    private structurePanel?: vscode.WebviewPanel;
+    private structureState?: {
+        rootPath: string;
+        rootName: string;
+        includeFiles: boolean;
+        showHidden: boolean;
+        maxDepth: number;
+        filter: string;
+    };
 
     constructor(context: vscode.ExtensionContext) {
         this.context = context;
@@ -229,17 +239,58 @@ export class ProjectService {
         }
 
         try {
-            const structure = this.buildProjectStructure(workspaceFolder.uri.fsPath);
+            if (!this.structureState || this.structureState.rootPath !== workspaceFolder.uri.fsPath) {
+                this.structureState = {
+                    rootPath: workspaceFolder.uri.fsPath,
+                    rootName: workspaceFolder.name,
+                    includeFiles: true,
+                    showHidden: false,
+                    maxDepth: 4,
+                    filter: ''
+                };
+            }
 
-            // Show project structure in a new panel
-            const panel = vscode.window.createWebviewPanel(
-                'projectStructure',
-                'Project Structure',
-                vscode.ViewColumn.Beside,
-                {}
-            );
+            if (!this.structurePanel) {
+                this.structurePanel = vscode.window.createWebviewPanel(
+                    'projectStructure',
+                    `Project Structure: ${workspaceFolder.name}`,
+                    vscode.ViewColumn.Beside,
+                    { enableScripts: true }
+                );
 
-            panel.webview.html = this.getProjectStructureHtml(structure);
+                this.structurePanel.onDidDispose(() => {
+                    this.structurePanel = undefined;
+                });
+
+                this.structurePanel.webview.onDidReceiveMessage(async message => {
+                    if (!this.structureState) {
+                        return;
+                    }
+
+                    switch (message.type) {
+                        case 'refresh':
+                            await this.refreshProjectStructure();
+                            break;
+                        case 'updateState':
+                            this.structureState = {
+                                ...this.structureState,
+                                ...message.state
+                            };
+                            await this.refreshProjectStructure();
+                            break;
+                        case 'openPath':
+                            if (typeof message.path === 'string') {
+                                await this.openStructurePath(message.path);
+                            }
+                            break;
+                    }
+                });
+            } else {
+                this.structurePanel.title = `Project Structure: ${workspaceFolder.name}`;
+                this.structurePanel.reveal(vscode.ViewColumn.Beside);
+            }
+
+            await this.refreshProjectStructure();
         } catch (error: any) {
             console.error('Error getting project structure:', error);
             vscode.window.showErrorMessage(`Failed to get project structure: ${error.message}`);
@@ -291,26 +342,152 @@ export class ProjectService {
         }
     }
 
-    private getProjectStructureHtml(structure: string): string {
-        return `
-        <!DOCTYPE html>
+    private getProjectStructureHtml(
+        webview: vscode.Webview,
+        data: StructureData,
+        state: ProjectStructureState
+    ): string {
+        const nonce = getNonce();
+        const csp = getDefaultCsp(webview, nonce);
+        const dataJson = JSON.stringify(data);
+        const stateJson = JSON.stringify(state);
+
+        return `<!DOCTYPE html>
         <html lang="en">
         <head>
             <meta charset="UTF-8">
             <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <meta http-equiv="Content-Security-Policy" content="${csp}">
             <title>Project Structure</title>
             <style>
-                body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; padding: 16px; }
-                h1 { font-size: 18px; margin-bottom: 16px; }
-                pre { background: #f5f5f5; padding: 12px; border-radius: 6px; overflow-x: auto; font-family: 'Consolas', monospace; }
+                body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; padding: 16px; color: #111827; }
+                h1 { font-size: 18px; margin-bottom: 12px; }
+                .toolbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 12px; }
+                .toolbar input[type="text"] { flex: 1; min-width: 180px; padding: 6px 8px; border-radius: 6px; border: 1px solid #d1d5db; }
+                .toolbar input[type="number"] { width: 64px; padding: 6px 8px; border-radius: 6px; border: 1px solid #d1d5db; }
+                .toolbar label { font-size: 12px; color: #374151; display: flex; align-items: center; gap: 4px; }
+                button { padding: 6px 10px; border: none; border-radius: 6px; background: #4F46E5; color: white; cursor: pointer; }
+                button.secondary { background: transparent; border: 1px solid #4F46E5; color: #4F46E5; }
+                .meta { font-size: 12px; color: #6b7280; margin-bottom: 10px; }
+                .tree { border: 1px solid #e5e7eb; border-radius: 8px; padding: 8px; }
+                ul { list-style: none; padding-left: 16px; margin: 0; }
+                li { margin: 2px 0; }
+                .node { display: flex; align-items: center; gap: 6px; padding: 2px 4px; border-radius: 4px; }
+                .node:hover { background: #f3f4f6; }
+                .twisty { width: 14px; text-align: center; cursor: pointer; color: #6b7280; }
+                .name { cursor: pointer; }
+                .file { color: #111827; }
+                .dir { font-weight: 500; color: #1f2937; }
+                .muted { color: #9ca3af; }
+                .hidden { display: none; }
             </style>
         </head>
         <body>
             <h1>Project Structure</h1>
-            <pre>${this.escapeHtml(structure)}</pre>
+            <div class="toolbar">
+                <input id="filterInput" type="text" placeholder="筛选（按名称或路径）" />
+                <label><input id="includeFiles" type="checkbox" /> 文件</label>
+                <label><input id="showHidden" type="checkbox" /> 隐藏项</label>
+                <label>深度 <input id="maxDepth" type="number" min="1" max="12" /></label>
+                <button id="refresh">刷新</button>
+            </div>
+            <div class="meta" id="meta"></div>
+            <div class="tree" id="tree"></div>
+            <script nonce="${nonce}">
+                const vscode = acquireVsCodeApi();
+                const initialData = ${dataJson};
+                const initialState = ${stateJson};
+
+                const filterInput = document.getElementById('filterInput');
+                const includeFiles = document.getElementById('includeFiles');
+                const showHidden = document.getElementById('showHidden');
+                const maxDepth = document.getElementById('maxDepth');
+                const tree = document.getElementById('tree');
+                const meta = document.getElementById('meta');
+
+                function renderTree(data) {
+                    tree.innerHTML = '';
+                    const rootList = document.createElement('ul');
+                    data.nodes.forEach(node => {
+                        rootList.appendChild(renderNode(node));
+                    });
+                    tree.appendChild(rootList);
+
+                    const truncated = data.counts.truncated ? ' · 已截断' : '';
+                    meta.textContent = \`目录: \${data.counts.directories} · 文件: \${data.counts.files}\${truncated}\`;
+                }
+
+                function renderNode(node) {
+                    const li = document.createElement('li');
+                    const row = document.createElement('div');
+                    row.className = 'node';
+
+                    const twisty = document.createElement('span');
+                    twisty.className = 'twisty';
+                    twisty.textContent = node.type === 'dir' ? '▾' : '';
+                    row.appendChild(twisty);
+
+                    const name = document.createElement('span');
+                    name.className = node.type === 'dir' ? 'name dir' : 'name file';
+                    name.textContent = node.name;
+                    row.appendChild(name);
+
+                    li.appendChild(row);
+
+                    if (node.type === 'dir') {
+                        const childList = document.createElement('ul');
+                        (node.children || []).forEach(child => childList.appendChild(renderNode(child)));
+                        li.appendChild(childList);
+
+                        twisty.addEventListener('click', (event) => {
+                            event.stopPropagation();
+                            const collapsed = childList.classList.toggle('hidden');
+                            twisty.textContent = collapsed ? '▸' : '▾';
+                        });
+
+                        name.addEventListener('click', () => {
+                            const collapsed = childList.classList.toggle('hidden');
+                            twisty.textContent = collapsed ? '▸' : '▾';
+                        });
+                    } else {
+                        name.addEventListener('click', () => {
+                            vscode.postMessage({ type: 'openPath', path: node.path });
+                        });
+                    }
+
+                    return li;
+                }
+
+                function updateState() {
+                    vscode.postMessage({
+                        type: 'updateState',
+                        state: {
+                            filter: filterInput.value || '',
+                            includeFiles: includeFiles.checked,
+                            showHidden: showHidden.checked,
+                            maxDepth: parseInt(maxDepth.value || '4', 10)
+                        }
+                    });
+                }
+
+                document.getElementById('refresh').addEventListener('click', () => {
+                    updateState();
+                });
+
+                filterInput.addEventListener('change', updateState);
+                includeFiles.addEventListener('change', updateState);
+                showHidden.addEventListener('change', updateState);
+                maxDepth.addEventListener('change', updateState);
+
+                filterInput.value = initialState.filter || '';
+                includeFiles.checked = !!initialState.includeFiles;
+                showHidden.checked = !!initialState.showHidden;
+                maxDepth.value = String(initialState.maxDepth || 4);
+
+                renderTree(initialData);
+            </script>
         </body>
-        </html>
-        `;
+        </html>`;
     }
 
     private getFileContentHtml(filePath: string, content: string): string {
@@ -361,32 +538,153 @@ export class ProjectService {
         return SENSITIVE_TOKENS.some(token => normalized.includes(token));
     }
 
-    private buildProjectStructure(rootPath: string): string {
-        const lines: string[] = [];
-        const rootName = path.basename(rootPath);
-        lines.push(rootName);
+    private async refreshProjectStructure(): Promise<void> {
+        if (!this.structurePanel || !this.structureState) {
+            return;
+        }
 
-        const traverse = (currentPath: string, prefix: string) => {
-            const entries = fs.readdirSync(currentPath, { withFileTypes: true })
-                .filter(entry => !this.shouldSkipEntry(entry.name))
-                .sort((a, b) => a.name.localeCompare(b.name));
+        const data = this.buildProjectStructureData(this.structureState);
+        this.structurePanel.webview.html = this.getProjectStructureHtml(
+            this.structurePanel.webview,
+            data,
+            this.structureState
+        );
+    }
 
-            entries.forEach((entry, index) => {
-                const connector = index === entries.length - 1 ? '└── ' : '├── ';
-                lines.push(`${prefix}${connector}${entry.name}`);
+    private buildProjectStructureData(state: ProjectStructureState): StructureData {
+        const maxEntries = 5000;
+        let entryCount = 0;
+        let files = 0;
+        let directories = 0;
 
-                if (entry.isDirectory()) {
-                    const nextPrefix = index === entries.length - 1 ? `${prefix}    ` : `${prefix}│   `;
-                    traverse(path.join(currentPath, entry.name), nextPrefix);
-                }
-            });
+        const shouldSkip = (name: string): boolean => {
+            if (!state.showHidden && name.startsWith('.')) {
+                return true;
+            }
+            return this.shouldSkipEntry(name);
         };
 
-        traverse(rootPath, '');
-        return lines.join('\n');
+        const matchesFilter = (value: string): boolean => {
+            if (!state.filter) {
+                return true;
+            }
+            return value.toLowerCase().includes(state.filter.toLowerCase());
+        };
+
+        const walk = (currentPath: string, depth: number, relativePath: string): StructureNode[] => {
+            if (depth > state.maxDepth) {
+                return [];
+            }
+
+            const entries = fs.readdirSync(currentPath, { withFileTypes: true })
+                .filter(entry => !shouldSkip(entry.name))
+                .sort((a, b) => {
+                    if (a.isDirectory() && !b.isDirectory()) {
+                        return -1;
+                    }
+                    if (!a.isDirectory() && b.isDirectory()) {
+                        return 1;
+                    }
+                    return a.name.localeCompare(b.name);
+                });
+
+            const nodes: StructureNode[] = [];
+
+            for (const entry of entries) {
+                if (entryCount >= maxEntries) {
+                    return nodes;
+                }
+                entryCount++;
+
+                const entryPath = relativePath ? `${relativePath}/${entry.name}` : entry.name;
+                const fullPath = path.join(currentPath, entry.name);
+
+                if (entry.isDirectory()) {
+                    directories++;
+                    const children = walk(fullPath, depth + 1, entryPath);
+                    const childMatches = children.length > 0;
+                    if (matchesFilter(entryPath) || childMatches) {
+                        nodes.push({
+                            name: entry.name,
+                            path: entryPath,
+                            type: 'dir',
+                            children
+                        });
+                    }
+                } else if (state.includeFiles) {
+                    files++;
+                    if (matchesFilter(entryPath)) {
+                        nodes.push({
+                            name: entry.name,
+                            path: entryPath,
+                            type: 'file'
+                        });
+                    }
+                }
+            }
+
+            return nodes;
+        };
+
+        const nodes = walk(state.rootPath, 1, '');
+        const truncated = entryCount >= maxEntries;
+
+        return {
+            rootName: state.rootName,
+            rootPath: state.rootPath,
+            nodes,
+            counts: {
+                files,
+                directories,
+                truncated
+            }
+        };
+    }
+
+    private async openStructurePath(relativePath: string): Promise<void> {
+        if (!this.structureState) {
+            return;
+        }
+
+        const fullPath = path.join(this.structureState.rootPath, relativePath);
+        if (!fs.existsSync(fullPath)) {
+            vscode.window.showWarningMessage(`路径不存在：${relativePath}`);
+            return;
+        }
+
+        const uri = vscode.Uri.file(fullPath);
+        await vscode.commands.executeCommand('vscode.open', uri);
     }
 
     private shouldSkipEntry(name: string): boolean {
-        return name === 'node_modules' || name === '.git' || name === '.DS_Store';
+        const defaults = new Set(['node_modules', '.git', '.DS_Store', 'dist', 'build', 'out', 'coverage']);
+        return defaults.has(name);
     }
 }
+
+type ProjectStructureState = {
+    rootPath: string;
+    rootName: string;
+    includeFiles: boolean;
+    showHidden: boolean;
+    maxDepth: number;
+    filter: string;
+};
+
+type StructureNode = {
+    name: string;
+    path: string;
+    type: 'file' | 'dir';
+    children?: StructureNode[];
+};
+
+type StructureData = {
+    rootName: string;
+    rootPath: string;
+    nodes: StructureNode[];
+    counts: {
+        files: number;
+        directories: number;
+        truncated: boolean;
+    };
+};
