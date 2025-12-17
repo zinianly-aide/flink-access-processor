@@ -146,7 +146,7 @@ export class ConfigService {
             // Safety configuration
             {
                 key: 'safety.allowCommandExecution',
-                defaultValue: true,
+                defaultValue: false,
                 description: 'Allow executing commands',
                 type: 'boolean',
                 scope: 'global'

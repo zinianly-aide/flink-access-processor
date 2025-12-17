@@ -2,7 +2,7 @@
   "name": "cline-dify-assistant",
   "displayName": "Cline Dify Assistant",
   "description": "AI coding assistant powered by Dify backend",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "publisher": "trae-ai",
   "repository": {
     "type": "git",
@@ -214,7 +214,7 @@
         },
         "cline-dify-assistant.safety.allowCommandExecution": {
           "type": "boolean",
-          "default": true,
+          "default": false,
           "description": "Allow executing shell commands from within the extension"
         },
         "cline-dify-assistant.safety.commandWhitelist": {

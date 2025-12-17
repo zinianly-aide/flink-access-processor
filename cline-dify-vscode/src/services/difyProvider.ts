@@ -21,7 +21,8 @@ export class DifyProvider implements AIProvider {
             headers: {
                 'Authorization': `Bearer ${this.apiKey}`,
                 'Content-Type': 'application/json'
-            }
+            },
+            timeout: 30000
         });
     }
 
@@ -82,7 +83,12 @@ export class DifyProvider implements AIProvider {
     ): Promise<StreamHandle> {
         const streamId = `dify-stream-${Date.now()}`;
         const controller = new AbortController();
-        let accumulatedResponse = '';
+        let resolveDone: (() => void) | undefined;
+        let rejectDone: ((error: unknown) => void) | undefined;
+        const done = new Promise<void>((resolve, reject) => {
+            resolveDone = resolve;
+            rejectDone = reject;
+        });
 
         try {
             const response = await this.axiosInstance.post(
@@ -97,12 +103,27 @@ export class DifyProvider implements AIProvider {
                 },
                 {
                     signal: controller.signal,
-                    responseType: 'stream'
+                    responseType: 'stream',
+                    timeout: 0
                 }
             );
 
             const stream = response.data;
             let buffer = '';
+
+            const finish = (error?: unknown) => {
+                try {
+                    stream.removeAllListeners?.();
+                } catch {
+                    // ignore
+                }
+
+                if (error) {
+                    rejectDone?.(error);
+                    return;
+                }
+                resolveDone?.();
+            };
 
             stream.on('data', (chunk: Buffer) => {
                 buffer += chunk.toString();
@@ -118,6 +139,7 @@ export class DifyProvider implements AIProvider {
                         if (dataStr === '[DONE]') {
                             // Stream completed
                             stream.destroy();
+                            finish();
                             return;
                         }
                         
@@ -125,7 +147,6 @@ export class DifyProvider implements AIProvider {
                             const data = JSON.parse(dataStr);
                             if (data.choices && data.choices[0]?.delta?.content) {
                                 const chunk = data.choices[0].delta.content;
-                                accumulatedResponse += chunk;
                                 if (callback) {
                                     callback(chunk);
                                 }
@@ -139,14 +160,20 @@ export class DifyProvider implements AIProvider {
 
             stream.on('end', () => {
                 console.log(`Stream ${streamId} completed`);
+                finish();
             });
 
             stream.on('error', (error: Error) => {
                 console.error('Dify stream error:', error);
+                finish(error);
             });
 
+            stream.on('close', () => {
+                finish();
+            });
         } catch (error) {
             console.error('Dify stream request error:', error);
+            rejectDone?.(error);
         }
 
         return {
@@ -154,7 +181,9 @@ export class DifyProvider implements AIProvider {
             cancel: () => {
                 controller.abort();
                 console.log(`Cancelled Dify stream: ${streamId}`);
-            }
+                resolveDone?.();
+            },
+            done
         };
     }
 
@@ -181,7 +210,8 @@ export class DifyProvider implements AIProvider {
             headers: {
                 'Authorization': `Bearer ${this.apiKey}`,
                 'Content-Type': 'application/json'
-            }
+            },
+            timeout: 30000
         });
     }
 
@@ -195,7 +225,8 @@ export class DifyProvider implements AIProvider {
             headers: {
                 'Authorization': `Bearer ${this.apiKey}`,
                 'Content-Type': 'application/json'
-            }
+            },
+            timeout: 30000
         });
     }
 

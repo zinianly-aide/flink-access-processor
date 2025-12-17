@@ -110,17 +110,14 @@ export class LoggerService {
         error?: Error,
         actions?: { title: string; callback: () => void }[]
     ): void {
-        const formattedActions = actions?.map(action => {
-            return { title: action.title, command: '', arguments: [] };
-        });
+        const items: vscode.MessageItem[] = (actions ?? []).map(action => ({ title: action.title }));
 
-        vscode.window.showErrorMessage(message, ...(formattedActions || [])).then(selection => {
-            if (selection && actions) {
-                const action = actions.find(a => a.title === selection.title);
-                if (action) {
-                    action.callback();
-                }
+        vscode.window.showErrorMessage(message, ...(items || [])).then(selection => {
+            if (!selection || !actions) {
+                return;
             }
+            const action = actions.find(a => a.title === selection.title);
+            action?.callback();
         });
 
         // Log the error to output channel

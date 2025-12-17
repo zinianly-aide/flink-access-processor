@@ -98,4 +98,5 @@ export interface StreamOptions {
 export interface StreamHandle {
     id: string;
     cancel: () => void;
+    done: Promise<void>;
 }

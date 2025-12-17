@@ -17,7 +17,8 @@ export class OllamaProvider implements AIProvider {
             baseURL: baseUrl,
             headers: {
                 'Content-Type': 'application/json'
-            }
+            },
+            timeout: 30000
         });
     }
 
@@ -62,6 +63,12 @@ export class OllamaProvider implements AIProvider {
     ): Promise<StreamHandle> {
         const streamId = `ollama-stream-${Date.now()}`;
         const controller = new AbortController();
+        let resolveDone: (() => void) | undefined;
+        let rejectDone: ((error: unknown) => void) | undefined;
+        const done = new Promise<void>((resolve, reject) => {
+            resolveDone = resolve;
+            rejectDone = reject;
+        });
         
         this.streamingConnections.set(streamId, controller);
 
@@ -78,12 +85,28 @@ export class OllamaProvider implements AIProvider {
                 },
                 {
                     signal: controller.signal,
-                    responseType: 'stream'
+                    responseType: 'stream',
+                    timeout: 0
                 }
             );
 
             const stream = response.data;
             let buffer = '';
+
+            const finish = (error?: unknown) => {
+                this.streamingConnections.delete(streamId);
+                try {
+                    stream.removeAllListeners?.();
+                } catch {
+                    // ignore
+                }
+
+                if (error) {
+                    rejectDone?.(error);
+                    return;
+                }
+                resolveDone?.();
+            };
 
             stream.on('data', (chunk: Buffer) => {
                 buffer += chunk.toString();
@@ -108,24 +131,31 @@ export class OllamaProvider implements AIProvider {
             });
 
             stream.on('end', () => {
-                this.streamingConnections.delete(streamId);
+                finish();
             });
 
             stream.on('error', (error: Error) => {
                 console.error('Ollama stream error:', error);
-                this.streamingConnections.delete(streamId);
+                finish(error);
             });
 
+            stream.on('close', () => {
+                finish();
+            });
         } catch (error) {
             console.error('Ollama stream request error:', error);
             this.streamingConnections.delete(streamId);
+            rejectDone?.(error);
         }
 
         return {
             id: streamId,
             cancel: () => {
-                this.cancel({ id: streamId, cancel: () => {} });
-            }
+                controller.abort();
+                this.streamingConnections.delete(streamId);
+                resolveDone?.();
+            },
+            done
         };
     }
 

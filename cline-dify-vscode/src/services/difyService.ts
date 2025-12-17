@@ -123,6 +123,27 @@ export class DifyService {
         vscode.window.showErrorMessage(message);
     }
 
+    private showErrorWithActions(message: string, error?: Error): void {
+        this.logger.showErrorWithActions(
+            message,
+            error,
+            [
+                {
+                    title: '打开配置',
+                    callback: () => {
+                        void vscode.commands.executeCommand('cline-dify-assistant.configureSettings');
+                    }
+                },
+                {
+                    title: '查看日志',
+                    callback: () => {
+                        this.logger.revealOutputChannel();
+                    }
+                }
+            ]
+        );
+    }
+
     /**
      * Show information message
      */
@@ -157,9 +178,10 @@ export class DifyService {
             this.logger.info('Model response received');
             return result;
         } catch (error) {
-            this.logger.error('Error calling AI backend:', error instanceof Error ? error : new Error(String(error)));
+            const err = error instanceof Error ? error : new Error(String(error));
+            this.logger.error('Error calling AI backend:', err);
             const providerType = this.configService.get<string>('provider');
-            this.showError(`Failed to get response from ${providerType}. Please verify your configuration.`);
+            this.showErrorWithActions(`Failed to get response from ${providerType}. Please verify your configuration.`, err);
             this.setStatus('Error', false);
             return '';
         }
@@ -190,21 +212,19 @@ export class DifyService {
             ];
             
             const streamHandle = await this.getProvider().stream(messages, undefined, callback);
-            
-            // We need to wait for the stream to complete
-            // For now, we'll just keep the status as busy until the stream is done
-            // The caller should handle calling doneCallback when streaming is complete
-            
-            if (doneCallback) {
-                doneCallback();
+
+            try {
+                await streamHandle.done;
+                doneCallback?.();
+                this.logger.info('Streaming model response completed');
+            } finally {
+                this.setStatus('Idle', false);
             }
-            
-            this.setStatus('Idle', false);
-            this.logger.info('Streaming model response completed');
         } catch (error) {
-            this.logger.error('Error calling AI backend:', error instanceof Error ? error : new Error(String(error)));
+            const err = error instanceof Error ? error : new Error(String(error));
+            this.logger.error('Error calling AI backend:', err);
             const providerType = this.configService.get<string>('provider');
-            this.showError(`Failed to get streaming response from ${providerType}. Please verify your configuration.`);
+            this.showErrorWithActions(`Failed to get streaming response from ${providerType}. Please verify your configuration.`, err);
             this.setStatus('Error', false);
         }
     }

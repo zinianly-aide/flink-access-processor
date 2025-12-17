@@ -64,7 +64,8 @@ export class McpService {
                     headers: {
                         'Content-Type': 'application/json',
                         ...(this.apiKey ? { 'Authorization': `Bearer ${this.apiKey}` } : {})
-                    }
+                    },
+                    timeout: 30000
                 }
             );
 
