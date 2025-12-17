@@ -19,3 +19,7 @@
 - Generator: record reproducible run metadata in `GENERATION_RUN.json` (mode/selection/model/params/results)
 - Generator: strengthen structured plan validation (paths, duplicates, deps, steps)
 - Generator: apply generation temperature/maxTokens config for plan + file generation
+
+## 0.4.0
+- Q&A: introduce rule-based intent routing (`/help`, MCP, citations, common commands)
+- Citation: add “引用当前选区”能力（命令与 Q&A 均可触发）

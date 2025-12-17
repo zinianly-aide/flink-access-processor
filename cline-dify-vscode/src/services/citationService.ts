@@ -6,6 +6,35 @@ import { pickWorkspaceFolder } from './workspaceService';
 export class CitationService {
     constructor(private readonly context: vscode.ExtensionContext) {}
 
+    public async insertCitationFromSelection(): Promise<boolean> {
+        const editor = vscode.window.activeTextEditor;
+        if (!editor) {
+            vscode.window.showErrorMessage('没有可用的编辑器。');
+            return false;
+        }
+
+        const document = editor.document;
+        const selection = editor.selection;
+        if (selection.isEmpty) {
+            vscode.window.showWarningMessage('请选择要引用的代码区段。');
+            return false;
+        }
+
+        const start = selection.start.line + 1;
+        const end = selection.end.line + 1;
+
+        const citation = await this.buildCitation(document.uri, { start, end });
+        if (!citation) {
+            return false;
+        }
+
+        await editor.edit(editBuilder => {
+            editBuilder.insert(selection.active, citation);
+        });
+
+        return true;
+    }
+
     public async insertCitationInteractive() {
         const workspaceFolder = await pickWorkspaceFolder('选择要引用的工作区文件夹');
         if (!workspaceFolder) {

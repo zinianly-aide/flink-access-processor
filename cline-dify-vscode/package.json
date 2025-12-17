@@ -2,7 +2,7 @@
   "name": "cline-dify-assistant",
   "displayName": "Cline Dify Assistant",
   "description": "AI coding assistant powered by Dify backend",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "publisher": "trae-ai",
   "repository": {
     "type": "git",
@@ -33,7 +33,8 @@
     "onCommand:cline-dify-assistant.configureSettings",
     "onCommand:cline-dify-assistant.openChangeTracker",
     "onCommand:cline-dify-assistant.runMcpQuery",
-    "onCommand:cline-dify-assistant.insertCodeCitation"
+    "onCommand:cline-dify-assistant.insertCodeCitation",
+    "onCommand:cline-dify-assistant.insertSelectionCitation"
   ],
   "main": "./out/extension.js",
   "contributes": {
@@ -89,6 +90,10 @@
       {
         "command": "cline-dify-assistant.insertCodeCitation",
         "title": "Insert Code Citation"
+      },
+      {
+        "command": "cline-dify-assistant.insertSelectionCitation",
+        "title": "Insert Citation From Selection"
       }
     ],
     "menus": {

@@ -6,6 +6,7 @@ import { LoggerService } from './loggerService';
 import { ConfigService } from './configService';
 import { escapeHtml, getDefaultCsp, getNonce } from './webviewSecurity';
 import { StreamHandle } from './aiProvider';
+import { IntentRouterService } from './intentRouterService';
 
 interface ChatMessage {
     role: 'user' | 'assistant';
@@ -23,12 +24,7 @@ export class QnaViewProvider implements vscode.WebviewViewProvider {
     private configWatchDisposable?: vscode.Disposable;
     private currentStream?: StreamHandle;
     private saveTimer?: NodeJS.Timeout;
-    private readonly commandMappings: Array<{ pattern: RegExp; command: string; successMessage: string }> = [
-        { pattern: /(打开|设置).*(配置|设置)/i, command: 'cline-dify-assistant.configureSettings', successMessage: '已启动配置命令，可在命令面板中继续操作。' },
-        { pattern: /(查看|显示).*(结构|目录)/i, command: 'cline-dify-assistant.showProjectStructure', successMessage: '已打开项目结构视图。' },
-        { pattern: /(查看|显示).*(变更|diff|差异)/i, command: 'cline-dify-assistant.openChangeTracker', successMessage: '已打开 Code Change Tracker 面板。' },
-        { pattern: /(调试|运行).*(生成代码|生成器)/i, command: 'cline-dify-assistant.debugGeneratedCode', successMessage: '已触发调试生成器命令。' }
-    ];
+    private readonly router = new IntentRouterService();
 
     constructor(
         private readonly extensionUri: vscode.Uri,
@@ -103,15 +99,8 @@ export class QnaViewProvider implements vscode.WebviewViewProvider {
         this.messages.push({ role: 'user', content: trimmed });
         this.postMessages();
 
-        if (await this.tryHandleCitation(trimmed)) {
-            return;
-        }
-
-        if (await this.tryHandleLocalCommand(trimmed)) {
-            return;
-        }
-
-        if (await this.tryHandleMcp(trimmed)) {
+        const handled = await this.tryHandleIntent(trimmed);
+        if (handled) {
             return;
         }
 
@@ -163,50 +152,78 @@ export class QnaViewProvider implements vscode.WebviewViewProvider {
         setTimeout(() => this.postMessages(), 100);
     }
 
-    private async tryHandleLocalCommand(text: string): Promise<boolean> {
-        for (const mapping of this.commandMappings) {
-            if (mapping.pattern.test(text)) {
-                await vscode.commands.executeCommand(mapping.command);
-                this.messages.push({ role: 'assistant', content: mapping.successMessage });
+    private async tryHandleIntent(text: string): Promise<boolean> {
+        const intent = this.router.route(text);
+        if (!intent) {
+            return false;
+        }
+
+        if (intent.type === 'help') {
+            this.messages.push({
+                role: 'assistant',
+                content: [
+                    '可用指令：',
+                    '- 帮助 /help',
+                    '- 打开配置：打开配置 / 设置配置',
+                    '- 查看项目结构：查看项目结构 / 查看目录',
+                    '- 查看变更：查看变更 / diff',
+                    '- 运行生成器调试：调试生成器 / 运行生成代码',
+                    '- MCP：mcp: 你的问题 或 /mcp 你的问题（需先启用 MCP）',
+                    '- 引用文件：引用 path/to/file.ts:10-30',
+                    '- 引用选区：引用当前选区'
+                ].join('\n')
+            });
+            this.postMessages();
+            return true;
+        }
+
+        if (intent.type === 'command') {
+            const command = intent.args?.command as string | undefined;
+            if (!command) {
+                return false;
+            }
+            await vscode.commands.executeCommand(command);
+            this.messages.push({ role: 'assistant', content: `已执行命令：${command}` });
+            this.postMessages();
+            return true;
+        }
+
+        if (intent.type === 'citationSelection') {
+            const ok = await this.citationService.insertCitationFromSelection();
+            this.messages.push({ role: 'assistant', content: ok ? '已插入选区引用。' : '插入选区引用失败。' });
+            this.postMessages();
+            return true;
+        }
+
+        if (intent.type === 'citationText') {
+            const citation = await this.citationService.handleCitationRequest(text);
+            if (!citation) {
+                return false;
+            }
+            this.messages.push({ role: 'assistant', content: citation });
+            this.postMessages();
+            return true;
+        }
+
+        if (intent.type === 'mcp') {
+            if (!this.mcpService.isEnabled()) {
+                this.messages.push({ role: 'assistant', content: 'MCP 未启用，请先在设置中开启并配置 MCP 服务。' });
                 this.postMessages();
                 return true;
             }
+
+            const query = (intent.args?.query as string | undefined)?.trim() || text;
+            try {
+                const result = await this.mcpService.executeQuery(query);
+                this.messages.push({ role: 'assistant', content: `MCP 结果：\n${result}` });
+            } catch (error: any) {
+                this.messages.push({ role: 'assistant', content: `MCP 查询失败：${error?.message ?? error}` });
+            }
+            this.postMessages();
+            return true;
         }
 
         return false;
-    }
-
-    private async tryHandleCitation(text: string): Promise<boolean> {
-        const citation = await this.citationService.handleCitationRequest(text);
-        if (!citation) {
-            return false;
-        }
-
-        this.messages.push({ role: 'assistant', content: citation });
-        this.postMessages();
-        return true;
-    }
-
-    private async tryHandleMcp(text: string): Promise<boolean> {
-        if (!this.mcpService.isEnabled()) {
-            return false;
-        }
-
-        const triggers = [/^\/mcp/i, /^mcp[:：]/i, /使用\s*mcp/i, /调用\s*mcp/i];
-        const matched = triggers.some(regex => regex.test(text));
-        if (!matched) {
-            return false;
-        }
-
-        const query = text.replace(/^\/?mcp[:：]?/i, '').replace(/使用\s*mcp/i, '').replace(/调用\s*mcp/i, '').trim() || text;
-        try {
-            const result = await this.mcpService.executeQuery(query);
-            this.messages.push({ role: 'assistant', content: `MCP 结果：\n${result}` });
-        } catch (error: any) {
-            this.messages.push({ role: 'assistant', content: `MCP 查询失败：${error?.message ?? error}` });
-        }
-        this.postMessages();
-        return true;
     }
 
     private postMessages() {
