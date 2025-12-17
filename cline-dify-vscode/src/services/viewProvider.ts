@@ -1,15 +1,19 @@
 import * as vscode from 'vscode';
 import { escapeAttribute, getDefaultCsp, getNonce } from './webviewSecurity';
+import { ConfigService } from './configService';
 
 export class SettingsViewProvider implements vscode.WebviewViewProvider {
     public static readonly viewType = 'cline-dify-assistant-settings';
 
     private _view?: vscode.WebviewView;
+    private readonly _configService: ConfigService;
 
     constructor(
         private readonly _extensionUri: vscode.Uri,
         private readonly _context: vscode.ExtensionContext
-    ) {}
+    ) {
+        this._configService = new ConfigService();
+    }
 
     public resolveWebviewView(
         webviewView: vscode.WebviewView,
@@ -47,11 +51,8 @@ export class SettingsViewProvider implements vscode.WebviewViewProvider {
         console.log(`Updating setting: ${key} = ${value}`);
         
         try {
-            const config = vscode.workspace.getConfiguration('cline-dify-assistant');
-            const hasWorkspace = (vscode.workspace.workspaceFolders?.length ?? 0) > 0;
-            const target = hasWorkspace ? vscode.ConfigurationTarget.Workspace : vscode.ConfigurationTarget.Global;
-
-            await config.update(key, value, target);
+            // Use ConfigService to update setting
+            await this._configService.set(key, value);
             
             // Force refresh the view to show updated values
             if (this._view) {
@@ -69,17 +70,16 @@ export class SettingsViewProvider implements vscode.WebviewViewProvider {
     private _getHtmlForWebview(webview: vscode.Webview): string {
         const nonce = getNonce();
         const csp = getDefaultCsp(webview, nonce);
-        // Get current settings
-        const config = vscode.workspace.getConfiguration('cline-dify-assistant');
-        const apiKey = escapeAttribute(config.get<string>('apiKey', ''));
-        const baseUrl = escapeAttribute(config.get<string>('baseUrl', 'https://api.dify.ai'));
-        const model = escapeAttribute(config.get<string>('model', 'gpt-4'));
-        const provider = escapeAttribute(config.get<string>('provider', 'dify'));
-        const ollamaBaseUrl = escapeAttribute(config.get<string>('ollamaBaseUrl', 'http://localhost:11434'));
-        const ollamaModel = escapeAttribute(config.get<string>('ollamaModel', 'llama3'));
-        const mcpEnabled = config.get<boolean>('mcpEnabled', false);
-        const mcpBaseUrl = escapeAttribute(config.get<string>('mcpBaseUrl', 'http://localhost:3921'));
-        const mcpApiKey = escapeAttribute(config.get<string>('mcpApiKey', ''));
+        // Get current settings from ConfigService
+        const apiKey = escapeAttribute(this._configService.get<string>('apiKey'));
+        const baseUrl = escapeAttribute(this._configService.get<string>('baseUrl'));
+        const model = escapeAttribute(this._configService.get<string>('model'));
+        const provider = escapeAttribute(this._configService.get<string>('provider'));
+        const ollamaBaseUrl = escapeAttribute(this._configService.get<string>('ollamaBaseUrl'));
+        const ollamaModel = escapeAttribute(this._configService.get<string>('ollamaModel'));
+        const mcpEnabled = this._configService.get<boolean>('mcpEnabled');
+        const mcpBaseUrl = escapeAttribute(this._configService.get<string>('mcpBaseUrl'));
+        const mcpApiKey = escapeAttribute(this._configService.get<string>('mcpApiKey'));
 
         return `<!DOCTYPE html>
             <html lang="en">

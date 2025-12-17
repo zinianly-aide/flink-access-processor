@@ -2,6 +2,8 @@ import * as vscode from 'vscode';
 import { DifyService } from './difyService';
 import { McpService } from './mcpService';
 import { CitationService } from './citationService';
+import { LoggerService } from './loggerService';
+import { ConfigService } from './configService';
 import { escapeHtml, getDefaultCsp, getNonce } from './webviewSecurity';
 
 interface ChatMessage {
@@ -14,6 +16,9 @@ export class QnaViewProvider implements vscode.WebviewViewProvider {
 
     private _view?: vscode.WebviewView;
     private messages: ChatMessage[] = [];
+    private readonly logger: LoggerService;
+    private readonly configService: ConfigService;
+    private configWatchDisposable?: vscode.Disposable;
     private readonly commandMappings: Array<{ pattern: RegExp; command: string; successMessage: string }> = [
         { pattern: /(打开|设置).*(配置|设置)/i, command: 'cline-dify-assistant.configureSettings', successMessage: '已启动配置命令，可在命令面板中继续操作。' },
         { pattern: /(查看|显示).*(结构|目录)/i, command: 'cline-dify-assistant.showProjectStructure', successMessage: '已打开项目结构视图。' },
@@ -26,7 +31,17 @@ export class QnaViewProvider implements vscode.WebviewViewProvider {
         private readonly difyService: DifyService,
         private readonly mcpService: McpService,
         private readonly citationService: CitationService
-    ) {}
+    ) {
+        this.logger = new LoggerService();
+        this.configService = new ConfigService();
+        
+        // Watch for configuration changes
+        this.configWatchDisposable = this.configService.watch((key, newValue, oldValue) => {
+            this.logger.debug(`Configuration changed: ${key}`, { oldValue, newValue });
+            // Refresh the view when configuration changes
+            this.refresh();
+        });
+    }
 
     public resolveWebviewView(
         webviewView: vscode.WebviewView,
@@ -80,12 +95,34 @@ export class QnaViewProvider implements vscode.WebviewViewProvider {
             return;
         }
 
-        const response = await this.difyService.getModelResponse(trimmed, 'Q&A');
+        // Add a placeholder message for streaming response
+        const assistantMessageIndex = this.messages.length;
         this.messages.push({
             role: 'assistant',
-            content: response || '未能获取回答，请检查配置或稍后重试。'
+            content: ''
         });
         this.postMessages();
+
+        // Use streaming response
+        let accumulatedResponse = '';
+        await this.difyService.getModelStreamResponse(
+            trimmed, 
+            'Q&A',
+            (chunk) => {
+                accumulatedResponse += chunk;
+                this.messages[assistantMessageIndex].content = accumulatedResponse;
+                this.postMessages();
+            },
+            () => {
+                this.logger.info('Streaming response completed');
+            }
+        );
+
+        // Ensure we have a response
+        if (!accumulatedResponse.trim()) {
+            this.messages[assistantMessageIndex].content = '未能获取回答，请检查配置或稍后重试。';
+            this.postMessages();
+        }
     }
 
     private refresh() {
@@ -149,11 +186,10 @@ export class QnaViewProvider implements vscode.WebviewViewProvider {
 
     private getHtml(webview: vscode.Webview, _messages: ChatMessage[]): string {
         const nonce = getNonce();
-        const config = vscode.workspace.getConfiguration('cline-dify-assistant');
-        const provider = config.get<string>('provider', 'dify');
+        const provider = this.configService.get<string>('provider');
         const model = provider === 'ollama'
-            ? config.get<string>('ollamaModel', 'llama3')
-            : config.get<string>('model', 'gpt-4');
+            ? this.configService.get<string>('ollamaModel')
+            : this.configService.get<string>('model');
         const csp = getDefaultCsp(webview, nonce);
         const safeProvider = escapeHtml(provider);
         const safeModel = escapeHtml(model);

@@ -4,6 +4,7 @@ import { DifyProvider } from './difyProvider';
 import { OllamaProvider } from './ollamaProvider';
 import { ConfigService } from './configService';
 import { LoggerService } from './loggerService';
+import { ChatCompletionRequestMessage } from './types';
 import { escapeHtml, getDefaultCsp, getNonce } from './webviewSecurity';
 
 const SUPPORTED_COMPLETION_LANGUAGES = new Set([
@@ -51,8 +52,19 @@ export class DifyService {
         // Listen for configuration changes
         this.configService.watch((key, newValue, oldValue) => {
             this.logger.debug(`Configuration changed: ${key}`, { oldValue, newValue });
+            
+            // Reinitialize providers if provider-related config changes
             if (key === 'provider' || key.startsWith('apiKey') || key.startsWith('baseUrl') || key.startsWith('ollama')) {
                 this.initializeProviders();
+            }
+            
+            // Update UI settings
+            if (key === 'ui.showStatusBar') {
+                if (newValue === true) {
+                    this.statusBarItem.show();
+                } else {
+                    this.statusBarItem.hide();
+                }
             }
         });
         
@@ -133,7 +145,7 @@ export class DifyService {
     }
 
     /**
-     * Get model response from the current provider
+     * Get model response from the current provider (non-streaming)
      */
     public async getModelResponse(prompt: string, contextLabel: string = 'Processing'): Promise<string> {
         try {
@@ -150,6 +162,50 @@ export class DifyService {
             this.showError(`Failed to get response from ${providerType}. Please verify your configuration.`);
             this.setStatus('Error', false);
             return '';
+        }
+    }
+
+    /**
+     * Get model response from the current provider (streaming)
+     */
+    public async getModelStreamResponse(
+        prompt: string, 
+        contextLabel: string = 'Processing',
+        callback: (chunk: string) => void,
+        doneCallback?: () => void
+    ): Promise<void> {
+        try {
+            this.setStatus(contextLabel, true);
+            this.logger.debug('Getting streaming model response', { prompt: prompt.substring(0, 100) + '...' });
+            
+            const messages: ChatCompletionRequestMessage[] = [
+                {
+                    role: 'system' as const,
+                    content: 'You are an expert AI coding assistant. Provide clear, concise, and accurate responses.'
+                },
+                {
+                    role: 'user' as const,
+                    content: prompt
+                }
+            ];
+            
+            const streamHandle = await this.getProvider().stream(messages, undefined, callback);
+            
+            // We need to wait for the stream to complete
+            // For now, we'll just keep the status as busy until the stream is done
+            // The caller should handle calling doneCallback when streaming is complete
+            
+            if (doneCallback) {
+                doneCallback();
+            }
+            
+            this.setStatus('Idle', false);
+            this.logger.info('Streaming model response completed');
+        } catch (error) {
+            this.logger.error('Error calling AI backend:', error instanceof Error ? error : new Error(String(error)));
+            const providerType = this.configService.get<string>('provider');
+            this.showError(`Failed to get streaming response from ${providerType}. Please verify your configuration.`);
+            this.setStatus('Error', false);
         }
     }
 

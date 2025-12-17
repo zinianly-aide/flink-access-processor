@@ -80,25 +80,80 @@ export class DifyProvider implements AIProvider {
         options?: StreamOptions,
         callback?: (chunk: string) => void
     ): Promise<StreamHandle> {
-        // Dify streaming implementation would go here
-        // For now, we'll use the non-streaming implementation as fallback
         const streamId = `dify-stream-${Date.now()}`;
-        
-        setTimeout(async () => {
-            try {
-                const response = await this.chat(messages, options);
-                if (callback) {
-                    callback(response);
+        const controller = new AbortController();
+        let accumulatedResponse = '';
+
+        try {
+            const response = await this.axiosInstance.post(
+                '/v1/chat/completions',
+                {
+                    model: options?.model || this.defaultModel,
+                    messages,
+                    temperature: options?.temperature || 0.7,
+                    max_tokens: options?.maxTokens || 2048,
+                    stop: options?.stop,
+                    stream: true
+                },
+                {
+                    signal: controller.signal,
+                    responseType: 'stream'
                 }
-            } catch (error) {
-                console.error('Streaming error:', error);
-            }
-        }, 100);
+            );
+
+            const stream = response.data;
+            let buffer = '';
+
+            stream.on('data', (chunk: Buffer) => {
+                buffer += chunk.toString();
+                
+                // Process each SSE event in the stream
+                let eventIndex;
+                while ((eventIndex = buffer.indexOf('\n\n')) !== -1) {
+                    const event = buffer.substring(0, eventIndex).trim();
+                    buffer = buffer.substring(eventIndex + 2);
+                    
+                    if (event && event.startsWith('data: ')) {
+                        const dataStr = event.substring(6);
+                        if (dataStr === '[DONE]') {
+                            // Stream completed
+                            stream.destroy();
+                            return;
+                        }
+                        
+                        try {
+                            const data = JSON.parse(dataStr);
+                            if (data.choices && data.choices[0]?.delta?.content) {
+                                const chunk = data.choices[0].delta.content;
+                                accumulatedResponse += chunk;
+                                if (callback) {
+                                    callback(chunk);
+                                }
+                            }
+                        } catch (error) {
+                            console.error('Error parsing Dify stream data:', error);
+                        }
+                    }
+                }
+            });
+
+            stream.on('end', () => {
+                console.log(`Stream ${streamId} completed`);
+            });
+
+            stream.on('error', (error: Error) => {
+                console.error('Dify stream error:', error);
+            });
+
+        } catch (error) {
+            console.error('Dify stream request error:', error);
+        }
 
         return {
             id: streamId,
             cancel: () => {
-                console.log(`Cancelled stream: ${streamId}`);
+                controller.abort();
+                console.log(`Cancelled Dify stream: ${streamId}`);
             }
         };
     }
