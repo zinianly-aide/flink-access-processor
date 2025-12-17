@@ -26,6 +26,10 @@ export class GeneratorService {
         this.outputChannel = vscode.window.createOutputChannel('Cline Dify Generator');
     }
 
+    private logPlanDebug(message: string, metadata?: Record<string, unknown>): void {
+        this.outputChannel.appendLine(`[plan] ${message}${metadata ? ` ${JSON.stringify(metadata)}` : ''}`);
+    }
+
     private getExtensionVersion(): string {
         const version = (this.context.extension?.packageJSON as any)?.version;
         return typeof version === 'string' && version.trim() ? version.trim() : 'unknown';
@@ -76,7 +80,8 @@ export class GeneratorService {
             progress.report({ message: 'Generating structured plan (JSON)...' });
             const plan = await this.generateStructuredPlan(projectDescription, workspaceFolder.uri.fsPath);
             if (!plan) {
-                this.logger.showWarning('Failed to generate a valid structured plan.');
+                this.logger.showWarning('Failed to generate a valid structured plan. 请查看 “Cline Dify Generator” 输出与 DEVELOPMENT_PLAN.raw.txt。');
+                this.outputChannel.show(true);
                 return;
             }
 
@@ -170,6 +175,8 @@ export class GeneratorService {
     private async generateStructuredPlan(projectDescription: string, projectRoot: string): Promise<ProjectPlan | null> {
         const generatorVersion = this.getExtensionVersion();
         const { model, temperature, maxTokens } = this.getGenerationOptions();
+        const provider = this.configService.get<string>('provider');
+        this.logPlanDebug('start', { provider, model, temperature, maxTokens });
         const prompt = `You are an expert AI development planner.
 
 Create a STRICT JSON plan for the following project:
@@ -255,7 +262,8 @@ Example:
 `;
 
         const raw = await this.difyService.getModelResponse(prompt, '规划 JSON', { model, temperature, maxTokens });
-        if (!raw) {
+        if (!raw?.trim()) {
+            this.reportPlanFailure('Empty response from model', raw ?? '', projectRoot);
             return null;
         }
 
@@ -601,160 +609,233 @@ Example:
         this.logger.showWarning(`Structured plan invalid: ${reason}. 已保存原始输出到 DEVELOPMENT_PLAN.raw.txt。`);
     }
 
+    private coercePlanShape(plan: any): { plan: ProjectPlan; warnings: string[] } {
+        const warnings: string[] = [];
+        const safeObject = (value: any): Record<string, any> => (value && typeof value === 'object') ? value : {};
+        const safeArray = <T>(value: any): T[] => Array.isArray(value) ? value : [];
+
+        const metadata = safeObject(plan?.metadata);
+
+        const coerced: ProjectPlan = {
+            version: typeof plan?.version === 'string' ? plan.version : '1.0.0',
+            projectName: typeof plan?.projectName === 'string' ? plan.projectName : '',
+            description: typeof plan?.description === 'string' ? plan.description : '',
+            directories: safeArray<string>(plan?.directories).filter(v => typeof v === 'string'),
+            files: safeArray<any>(plan?.files),
+            steps: safeArray<any>(plan?.steps),
+            dependencies: safeArray<string>(plan?.dependencies).filter(v => typeof v === 'string'),
+            metadata: {
+                generatedAt: typeof metadata.generatedAt === 'string' ? metadata.generatedAt : new Date().toISOString(),
+                generatorVersion: typeof metadata.generatorVersion === 'string' ? metadata.generatorVersion : this.getExtensionVersion(),
+                model: typeof metadata.model === 'string' ? metadata.model : this.getConfiguredModel()
+            }
+        };
+
+        if (!Array.isArray(plan?.directories)) {
+            warnings.push('directories missing; defaulted to []');
+        }
+        if (!Array.isArray(plan?.files)) {
+            warnings.push('files missing; defaulted to []');
+        }
+        if (!Array.isArray(plan?.steps)) {
+            warnings.push('steps missing; defaulted to []');
+        }
+        if (!Array.isArray(plan?.dependencies)) {
+            warnings.push('dependencies missing; defaulted to []');
+        }
+
+        return { plan: coerced, warnings };
+    }
+
+    private normalizePlanForValidation(plan: ProjectPlan): { plan: ProjectPlan; warnings: string[] } {
+        const warnings: string[] = [];
+
+        const normalizedDirs = new Set<string>();
+        for (const dir of plan.directories ?? []) {
+            const normalized = this.normalizeRelativePath(dir, true);
+            if (!normalized) {
+                warnings.push(`Dropped invalid directory path: ${dir}`);
+                continue;
+            }
+            if (normalized !== '.') {
+                normalizedDirs.add(normalized);
+            }
+        }
+
+        const normalizedFiles: ProjectPlan['files'] = [];
+        const filePathSet = new Set<string>();
+
+        for (const file of plan.files ?? []) {
+            if (!file || typeof file !== 'object') {
+                warnings.push('Dropped invalid file entry');
+                continue;
+            }
+
+            const normalizedPath = this.normalizeRelativePath((file as any).path, false);
+            if (!normalizedPath) {
+                warnings.push(`Dropped invalid file path: ${(file as any).path}`);
+                continue;
+            }
+
+            if (filePathSet.has(normalizedPath)) {
+                warnings.push(`Dropped duplicate file path: ${normalizedPath}`);
+                continue;
+            }
+
+            const purpose = typeof (file as any).purpose === 'string' ? (file as any).purpose : '';
+            const language = typeof (file as any).language === 'string' ? (file as any).language : '';
+            if (!purpose.trim()) {
+                warnings.push(`Missing purpose for file: ${normalizedPath}`);
+            }
+            if (!language.trim()) {
+                warnings.push(`Missing language for file: ${normalizedPath}`);
+            }
+
+            const depsRaw = Array.isArray((file as any).dependencies) ? (file as any).dependencies : [];
+            if (!Array.isArray((file as any).dependencies)) {
+                warnings.push(`dependencies missing for file: ${normalizedPath} (defaulted to [])`);
+            }
+
+            const normalizedDeps: string[] = [];
+            for (const dep of depsRaw) {
+                if (typeof dep !== 'string' || !dep.trim()) {
+                    continue;
+                }
+                const normalizedDep = this.normalizeRelativePath(dep, false);
+                if (!normalizedDep) {
+                    warnings.push(`Dropped invalid dependency '${dep}' for file: ${normalizedPath}`);
+                    continue;
+                }
+                normalizedDeps.push(normalizedDep);
+            }
+
+            filePathSet.add(normalizedPath);
+            normalizedFiles.push({
+                path: normalizedPath,
+                purpose,
+                language,
+                dependencies: normalizedDeps,
+                overwrite: (file as any).overwrite === true
+            });
+        }
+
+        // Drop unknown file dependency references instead of failing the whole plan.
+        for (const file of normalizedFiles) {
+            const before = file.dependencies.length;
+            file.dependencies = file.dependencies.filter(dep => filePathSet.has(dep));
+            if (file.dependencies.length !== before) {
+                warnings.push(`Dropped unknown file dependencies for ${file.path}`);
+            }
+        }
+
+        const steps = Array.isArray(plan.steps) ? plan.steps : [];
+        const normalizedSteps: ProjectPlan['steps'] = [];
+        const stepIds = new Set<string>();
+
+        for (const step of steps) {
+            if (!step || typeof step !== 'object') {
+                warnings.push('Dropped invalid step entry');
+                continue;
+            }
+            const id = typeof (step as any).id === 'string' ? (step as any).id : '';
+            const name = typeof (step as any).name === 'string' ? (step as any).name : '';
+            const description = typeof (step as any).description === 'string' ? (step as any).description : '';
+            const action = (step as any).action;
+
+            if (!id.trim()) {
+                warnings.push('Dropped step with missing id');
+                continue;
+            }
+            if (stepIds.has(id)) {
+                warnings.push(`Dropped duplicate step id: ${id}`);
+                continue;
+            }
+            stepIds.add(id);
+
+            const depsRaw = Array.isArray((step as any).dependencies) ? (step as any).dependencies : [];
+            const deps = depsRaw.filter((d: any) => typeof d === 'string' && d.trim());
+
+            normalizedSteps.push({
+                id,
+                name,
+                description,
+                dependencies: deps,
+                action: (['create', 'modify', 'delete', 'run', 'test'] as const).includes(action) ? action : 'create',
+                target: typeof (step as any).target === 'string' ? (step as any).target : undefined
+            });
+        }
+
+        // Drop unknown step dependencies instead of failing the whole plan.
+        for (const step of normalizedSteps) {
+            const before = step.dependencies.length;
+            step.dependencies = step.dependencies.filter(dep => stepIds.has(dep));
+            if (step.dependencies.length !== before) {
+                warnings.push(`Dropped unknown step dependencies for step: ${step.id}`);
+            }
+        }
+
+        const generatorVersion = this.getExtensionVersion();
+        const model = this.getConfiguredModel();
+        const updated: ProjectPlan = {
+            ...plan,
+            directories: Array.from(normalizedDirs),
+            files: normalizedFiles,
+            steps: normalizedSteps,
+            dependencies: Array.isArray(plan.dependencies) ? plan.dependencies.filter(d => typeof d === 'string') : [],
+            metadata: {
+                ...plan.metadata,
+                generatedAt: typeof plan.metadata?.generatedAt === 'string' && plan.metadata.generatedAt.trim()
+                    ? plan.metadata.generatedAt
+                    : new Date().toISOString(),
+                generatorVersion,
+                model
+            }
+        };
+
+        if (!updated.files.length) {
+            warnings.push('Plan contains no files');
+        }
+
+        return { plan: updated, warnings };
+    }
+
     /* eslint-disable no-mixed-spaces-and-tabs */
 	    private validatePlan(plan: ProjectPlan): { ok: true; plan: ProjectPlan } | { ok: false; error: string } {
-	        if (!plan || plan.version !== '1.0.0') {
+	        if (!plan) {
+	            return { ok: false, error: 'Plan is empty' };
+	        }
+
+            const { plan: coerced, warnings: shapeWarnings } = this.coercePlanShape(plan as any);
+            const { plan: normalized, warnings: normalizeWarnings } = this.normalizePlanForValidation(coerced);
+            const warnings = [...shapeWarnings, ...normalizeWarnings];
+            if (warnings.length) {
+                this.logPlanDebug('validate warnings', { warnings });
+            }
+
+	        if (normalized.version !== '1.0.0') {
 	            return { ok: false, error: 'Plan version must be 1.0.0' };
 	        }
 
-	        if (!plan.projectName || typeof plan.projectName !== 'string' || !plan.projectName.trim()) {
+	        if (!normalized.projectName || typeof normalized.projectName !== 'string' || !normalized.projectName.trim()) {
 	            return { ok: false, error: 'Missing projectName' };
 	        }
 
-	        if (!plan.description || typeof plan.description !== 'string' || !plan.description.trim()) {
+	        if (!normalized.description || typeof normalized.description !== 'string' || !normalized.description.trim()) {
 	            return { ok: false, error: 'Missing description' };
 	        }
 
-	        if (!Array.isArray(plan.directories) || !Array.isArray(plan.files)) {
-	            return { ok: false, error: 'Missing directories/files' };
+	        if (!Array.isArray(normalized.files) || normalized.files.length === 0) {
+	            return { ok: false, error: 'Plan contains no files' };
 	        }
 
-	        if (!Array.isArray(plan.steps)) {
-	            return { ok: false, error: 'Missing steps section' };
-	        }
-
-	        if (!Array.isArray(plan.dependencies)) {
-	            return { ok: false, error: 'Missing dependencies section' };
-	        }
-
-	        if (!plan.metadata || typeof plan.metadata !== 'object') {
-	            return { ok: false, error: 'Missing metadata section' };
-	        }
-
-	        const normalizedDirs = new Set<string>();
-	        for (const dir of plan.directories) {
-	            const normalized = this.normalizeRelativePath(dir, true);
-	            if (!normalized) {
-	                return { ok: false, error: `Invalid directory path: ${dir}` };
-	            }
-	            if (normalized !== '.') {
-	                normalizedDirs.add(normalized);
+	        // Security-critical checks: file paths must be safe and unique (handled by normalization).
+	        for (const file of normalized.files) {
+	            if (!file.path || typeof file.path !== 'string') {
+	                return { ok: false, error: 'Invalid file path' };
 	            }
 	        }
 
-	        const normalizedFiles: ProjectPlan['files'] = [];
-	        const filePathSet = new Set<string>();
-	        for (const file of plan.files) {
-	            if (!file || typeof file !== 'object') {
-	                return { ok: false, error: 'Invalid file entry' };
-	            }
-
-	            const normalizedPath = this.normalizeRelativePath(file.path, false);
-	            if (!normalizedPath) {
-	                return { ok: false, error: `Invalid file path: ${file.path}` };
-	            }
-
-	            if (filePathSet.has(normalizedPath)) {
-	                return { ok: false, error: `Duplicate file path in plan: ${normalizedPath}` };
-	            }
-	            filePathSet.add(normalizedPath);
-
-	            if (typeof file.purpose !== 'string' || !file.purpose.trim()) {
-	                return { ok: false, error: `Missing purpose for file: ${normalizedPath}` };
-	            }
-	            if (typeof file.language !== 'string' || !file.language.trim()) {
-	                return { ok: false, error: `Missing language for file: ${normalizedPath}` };
-	            }
-	            if (!Array.isArray(file.dependencies)) {
-	                return { ok: false, error: `Invalid dependencies for file: ${normalizedPath}` };
-	            }
-
-	            const normalizedDeps: string[] = [];
-	            for (const dep of file.dependencies) {
-	                if (typeof dep !== 'string' || !dep.trim()) {
-	                    return { ok: false, error: `Invalid dependency value for file: ${normalizedPath}` };
-	                }
-	                const normalizedDep = this.normalizeRelativePath(dep, false);
-	                if (!normalizedDep) {
-	                    return { ok: false, error: `Invalid dependency path '${dep}' for file: ${normalizedPath}` };
-	                }
-	                normalizedDeps.push(normalizedDep);
-	            }
-
-	            normalizedFiles.push({
-	                ...file,
-	                path: normalizedPath,
-	                dependencies: normalizedDeps,
-	                overwrite: file.overwrite === true
-	            });
-	        }
-
-	        for (const file of normalizedFiles) {
-	            for (const dep of file.dependencies) {
-	                if (!filePathSet.has(dep)) {
-	                    return { ok: false, error: `File dependency '${dep}' not found in plan (referenced by ${file.path})` };
-	                }
-	            }
-	        }
-
-	        for (const filePath of filePathSet) {
-	            if (normalizedDirs.has(filePath)) {
-	                return { ok: false, error: `Path is both a directory and a file: ${filePath}` };
-	            }
-	        }
-
-	        const stepIds = new Set<string>();
-	        for (const step of plan.steps) {
-	            if (!step || typeof step !== 'object') {
-	                return { ok: false, error: 'Invalid step entry' };
-	            }
-	            if (typeof step.id !== 'string' || !step.id.trim()) {
-	                return { ok: false, error: 'Step id is required' };
-	            }
-	            if (stepIds.has(step.id)) {
-	                return { ok: false, error: `Duplicate step id: ${step.id}` };
-	            }
-	            stepIds.add(step.id);
-
-	            if (typeof step.name !== 'string' || !step.name.trim()) {
-	                return { ok: false, error: `Missing step name: ${step.id}` };
-	            }
-	            if (typeof step.description !== 'string') {
-	                return { ok: false, error: `Missing step description: ${step.id}` };
-	            }
-	            if (!Array.isArray(step.dependencies)) {
-	                return { ok: false, error: `Invalid step dependencies: ${step.id}` };
-	            }
-	            if (!['create', 'modify', 'delete', 'run', 'test'].includes(step.action)) {
-	                return { ok: false, error: `Invalid step action: ${step.id}` };
-	            }
-	        }
-
-	        for (const step of plan.steps) {
-	            for (const dep of step.dependencies) {
-	                if (typeof dep !== 'string' || !dep.trim() || !stepIds.has(dep)) {
-	                    return { ok: false, error: `Step dependency '${dep}' not found (referenced by ${step.id})` };
-	                }
-	            }
-	        }
-
-	        const generatorVersion = this.getExtensionVersion();
-	        const model = this.getConfiguredModel();
-	        const updated: ProjectPlan = {
-	            ...plan,
-	            directories: Array.from(normalizedDirs),
-	            files: normalizedFiles,
-	            metadata: {
-	                ...plan.metadata,
-	                generatedAt: typeof plan.metadata.generatedAt === 'string' && plan.metadata.generatedAt.trim()
-	                    ? plan.metadata.generatedAt
-	                    : new Date().toISOString(),
-	                generatorVersion,
-	                model
-	            }
-	        };
-
-	        return { ok: true, plan: updated };
+	        return { ok: true, plan: normalized };
 	    }
 
     /* eslint-enable no-mixed-spaces-and-tabs */
@@ -772,12 +853,6 @@ Example:
         const normalized = trimmed.replace(/\/\/+/g, '/').replace(/\/+$/, treatAsDirectory ? '' : '');
         if (!normalized) {
             return null;
-        }
-        if (treatAsDirectory) {
-            const last = normalized.split('/').pop() ?? normalized;
-            if (last.includes('.') && !last.startsWith('.')) {
-                return null;
-            }
         }
         return normalized;
     }
