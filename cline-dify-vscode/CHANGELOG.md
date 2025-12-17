@@ -23,3 +23,6 @@
 ## 0.4.0
 - Q&A: introduce rule-based intent routing (`/help`, MCP, citations, common commands)
 - Citation: add “引用当前选区”能力（命令与 Q&A 均可触发）
+
+## 0.5.0
+- MCP: add optional `/tools` and `/resources` discovery helpers (with 404 guidance)

@@ -79,6 +79,40 @@ export class McpService {
         }
     }
 
+    public async listTools(): Promise<string> {
+        return this.getJson('/tools');
+    }
+
+    public async listResources(): Promise<string> {
+        return this.getJson('/resources');
+    }
+
+    private async getJson(path: string): Promise<string> {
+        if (!this.isEnabled()) {
+            throw new Error('MCP 未启用或配置不完整');
+        }
+
+        const endpoint = `${this.baseUrl.replace(/\/$/, '')}${path}`;
+        try {
+            const response = await axios.get(endpoint, {
+                headers: {
+                    ...(this.apiKey ? { 'Authorization': `Bearer ${this.apiKey}` } : {})
+                },
+                timeout: 30000
+            });
+            const content = typeof response.data === 'string' ? response.data : JSON.stringify(response.data, null, 2);
+            this.writeOutput(`GET ${path}`, content);
+            return content;
+        } catch (error: any) {
+            const status = error?.response?.status;
+            const message = error?.response?.data?.message ?? error?.message ?? 'MCP 请求失败';
+            if (status === 404) {
+                throw new Error(`MCP 服务器不支持 ${path}（404）。`);
+            }
+            throw new Error(message);
+        }
+    }
+
     private writeOutput(query: string, result: string) {
         this.output.appendLine(`> MCP Query: ${query}`);
         this.output.appendLine(result);

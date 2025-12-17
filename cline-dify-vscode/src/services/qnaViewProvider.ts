@@ -214,7 +214,12 @@ export class QnaViewProvider implements vscode.WebviewViewProvider {
 
             const query = (intent.args?.query as string | undefined)?.trim() || text;
             try {
-                const result = await this.mcpService.executeQuery(query);
+                const normalized = query.toLowerCase();
+                const result = normalized === 'tools'
+                    ? await this.mcpService.listTools()
+                    : normalized === 'resources'
+                        ? await this.mcpService.listResources()
+                        : await this.mcpService.executeQuery(query);
                 this.messages.push({ role: 'assistant', content: `MCP 结果：\n${result}` });
             } catch (error: any) {
                 this.messages.push({ role: 'assistant', content: `MCP 查询失败：${error?.message ?? error}` });
