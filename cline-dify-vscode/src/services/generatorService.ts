@@ -165,6 +165,7 @@ export class GeneratorService {
                 run.endedAt = new Date().toISOString();
                 await this.writeGenerationRun(workspaceFolder.uri.fsPath, run);
                 this.logger.showInfo('Dry run 完成：未写入任何文件。已生成 GENERATION_RUN.json。');
+                await this.offerContinueInQna();
                 return;
             }
 
@@ -172,7 +173,22 @@ export class GeneratorService {
             run.result = await this.generateCodeFromPlan(plan, selected, workspaceFolder.uri.fsPath);
             run.endedAt = new Date().toISOString();
             await this.writeGenerationRun(workspaceFolder.uri.fsPath, run);
+            await this.offerContinueInQna();
         });
+    }
+
+    private async offerContinueInQna(): Promise<void> {
+        const picked = await this.logger.showInfo('生成流程结束。是否打开侧边栏 Q&A 继续交互？', ['打开 Q&A', '稍后']);
+        if (picked !== '打开 Q&A') {
+            return;
+        }
+
+        try {
+            await vscode.commands.executeCommand('workbench.view.extension.cline-dify-assistant-view');
+            await vscode.commands.executeCommand('workbench.action.focusView', 'cline-dify-assistant-qna');
+        } catch (error) {
+            this.logger.warn('Failed to open Q&A view', { error: String(error) });
+        }
     }
 
     /**
@@ -566,6 +582,66 @@ Example:
             vscode.window.showInformationMessage('Debug command completed. Check the "Cline Dify Generator" output for details.');
         } catch (error: any) {
             vscode.window.showErrorMessage(`Debug command failed: ${error.message ?? error}`);
+        }
+    }
+
+    public async copyInstallCommand(): Promise<void> {
+        const workspaceFolder = await pickWorkspaceFolder('选择要复制依赖安装命令的工作区文件夹');
+        if (!workspaceFolder) {
+            vscode.window.showErrorMessage('No workspace folder open.');
+            return;
+        }
+
+        const projectRoot = workspaceFolder.uri.fsPath;
+        const planPath = path.join(projectRoot, 'DEVELOPMENT_PLAN.json');
+        if (!fs.existsSync(planPath)) {
+            vscode.window.showErrorMessage('未找到 DEVELOPMENT_PLAN.json，请先运行 Start Dual-Role Generator。');
+            return;
+        }
+
+        let plan: ProjectPlan | null = null;
+        try {
+            plan = JSON.parse(fs.readFileSync(planPath, 'utf8')) as ProjectPlan;
+        } catch (error) {
+            vscode.window.showErrorMessage(`无法解析 DEVELOPMENT_PLAN.json：${String(error)}`);
+            return;
+        }
+
+        const deps = Array.isArray(plan.dependencies) ? plan.dependencies.filter(d => typeof d === 'string' && d.trim()) : [];
+        if (!deps.length) {
+            vscode.window.showInformationMessage('计划中未包含 dependencies。');
+            return;
+        }
+
+        const parsed = this.dependencyService.parseDependencies(deps);
+        const pm = this.dependencyService.detectPackageManager(projectRoot);
+        const installCommand = this.dependencyService.buildInstallCommand(pm, parsed.entries);
+        await vscode.env.clipboard.writeText(installCommand);
+
+        this.outputChannel.appendLine('[deps] copyInstallCommand');
+        if (parsed.warnings.length) {
+            this.outputChannel.appendLine('[deps] warnings ' + JSON.stringify(parsed.warnings));
+        }
+        this.outputChannel.appendLine(installCommand);
+        this.outputChannel.show(true);
+
+        const picked = await vscode.window.showInformationMessage(
+            '已复制依赖安装命令到剪贴板。',
+            '写入 package.json',
+            '打开 DEPENDENCIES.md'
+        );
+
+        if (picked === '写入 package.json') {
+            const result = this.dependencyService.applyDependencies(projectRoot, deps);
+            await vscode.window.showTextDocument(vscode.Uri.file(result.markdownPath), { preview: false });
+        } else if (picked === '打开 DEPENDENCIES.md') {
+            const mdPath = path.join(projectRoot, 'DEPENDENCIES.md');
+            if (fs.existsSync(mdPath)) {
+                await vscode.window.showTextDocument(vscode.Uri.file(mdPath), { preview: false });
+            } else {
+                const result = this.dependencyService.applyDependencies(projectRoot, deps);
+                await vscode.window.showTextDocument(vscode.Uri.file(result.markdownPath), { preview: false });
+            }
         }
     }
 

@@ -27,6 +27,10 @@ export class IntentRouterService {
             return { type: 'command', args: { command: 'cline-dify-assistant.debugGeneratedCode' }, confidence: 0.85, source: 'rule' };
         }
 
+        if (/(安装|引入|更新).*(依赖|dependencies)/i.test(text) || /复制.*安装命令/i.test(text)) {
+            return { type: 'command', args: { command: 'cline-dify-assistant.copyInstallCommand' }, confidence: 0.85, source: 'rule' };
+        }
+
         if (/引用当前选区/i.test(text) || /引用选区/i.test(text)) {
             return { type: 'citationSelection', args: {}, confidence: 1, source: 'rule' };
         }
@@ -43,4 +47,3 @@ export class IntentRouterService {
         return null;
     }
 }
-

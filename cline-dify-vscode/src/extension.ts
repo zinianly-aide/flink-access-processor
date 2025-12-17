@@ -88,6 +88,10 @@ export function activate(context: vscode.ExtensionContext) {
         await citationService.insertCitationFromSelection();
     });
 
+    const copyInstallCommand = vscode.commands.registerCommand('cline-dify-assistant.copyInstallCommand', async () => {
+        await generatorService.copyInstallCommand();
+    });
+
     // Register completion item provider
     const completionProvider = vscode.languages.registerCompletionItemProvider(
         '*',
@@ -115,6 +119,7 @@ export function activate(context: vscode.ExtensionContext) {
         runMcpQueryCommand,
         insertCitationCommand,
         insertSelectionCitationCommand,
+        copyInstallCommand,
         completionProvider
     );
 }

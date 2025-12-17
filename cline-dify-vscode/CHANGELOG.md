@@ -30,3 +30,8 @@
 ## 0.6.0
 - Generator: apply plan `dependencies` into `package.json` and generate `DEPENDENCIES.md`
 - Generator: stronger prompts to pin dependency versions and restrict third-party imports to declared deps
+
+## 0.7.0
+- Q&A: append project context (structure/deps/last run/git) to prompts for better follow-up iteration
+- Q&A: add quick action buttons (structure/diff/command/tests/deps/generator/cite)
+- Generator: add “copy install command” command and offer to open Q&A after generation

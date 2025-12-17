@@ -7,6 +7,8 @@ import { ConfigService } from './configService';
 import { escapeHtml, getDefaultCsp, getNonce } from './webviewSecurity';
 import { StreamHandle } from './aiProvider';
 import { IntentRouterService } from './intentRouterService';
+import { ProjectContextService } from './projectContextService';
+import { getPreferredWorkspaceFolder } from './workspaceService';
 
 interface ChatMessage {
     role: 'user' | 'assistant';
@@ -25,6 +27,7 @@ export class QnaViewProvider implements vscode.WebviewViewProvider {
     private currentStream?: StreamHandle;
     private saveTimer?: NodeJS.Timeout;
     private readonly router = new IntentRouterService();
+    private readonly projectContext = new ProjectContextService();
 
     constructor(
         private readonly extensionUri: vscode.Uri,
@@ -74,6 +77,11 @@ export class QnaViewProvider implements vscode.WebviewViewProvider {
                 case 'openSettings':
                     vscode.commands.executeCommand('cline-dify-assistant.configureSettings');
                     break;
+                case 'executeCommand':
+                    if (typeof message.command === 'string' && message.command) {
+                        await vscode.commands.executeCommand(message.command);
+                    }
+                    break;
             }
         });
 
@@ -112,11 +120,13 @@ export class QnaViewProvider implements vscode.WebviewViewProvider {
         });
         this.postMessages();
 
+        const promptWithContext = await this.buildPromptWithContext(trimmed);
+
         // Use streaming response
         let accumulatedResponse = '';
         this.postStreamingState(true);
         const handle = await this.difyService.getModelStreamResponse(
-            trimmed, 
+            promptWithContext,
             'Q&A',
             (chunk) => {
                 accumulatedResponse += chunk;
@@ -141,6 +151,41 @@ export class QnaViewProvider implements vscode.WebviewViewProvider {
             this.messages[assistantMessageIndex].content = '未能获取回答，请检查配置或稍后重试。';
             this.postMessages();
         }
+    }
+
+    private async buildPromptWithContext(userText: string): Promise<string> {
+        const folder = getPreferredWorkspaceFolder() ?? vscode.workspace.workspaceFolders?.[0];
+        const projectRoot = folder?.uri.fsPath;
+        if (!projectRoot) {
+            return userText;
+        }
+
+        const includeProjectStructure = this.configService.get<boolean>('qa.includeProjectStructure');
+        const includeDependencies = this.configService.get<boolean>('qa.includeDependencies');
+        const includeLastRun = this.configService.get<boolean>('qa.includeLastGenerationRun');
+        const includeGit = this.configService.get<boolean>('qa.includeGitStatus');
+        const maxChars = this.configService.get<number>('qa.maxContextChars');
+
+        const context = await this.projectContext.build(projectRoot, {
+            includeProjectStructure,
+            includeDependencies,
+            includeLastGenerationRun: includeLastRun,
+            includeGitStatus: includeGit,
+            maxChars
+        });
+
+        const guidance = [
+            '你是一个项目协作助手。',
+            '- 结合提供的上下文（结构、依赖、生成记录、git 变更）给出可执行建议。',
+            '- 当你需要我在本地执行操作时，请给出“下一步建议”列表（包含具体命令或 VS Code 操作），并说明预期结果与风险。',
+            '- 避免凭空假设文件存在；如需更多信息请先提出最少的问题。'
+        ].join('\n');
+
+        if (!context) {
+            return `${guidance}\n\n用户问题：\n${userText}`;
+        }
+
+        return `${guidance}\n\n用户问题：\n${userText}\n\n---\n上下文（自动收集）：\n${context}`;
     }
 
     private refresh() {
@@ -168,6 +213,7 @@ export class QnaViewProvider implements vscode.WebviewViewProvider {
                     '- 查看项目结构：查看项目结构 / 查看目录',
                     '- 查看变更：查看变更 / diff',
                     '- 运行生成器调试：调试生成器 / 运行生成代码',
+                    '- 安装依赖：安装依赖 / 复制安装命令（需要先生成 DEVELOPMENT_PLAN.json）',
                     '- MCP：mcp: 你的问题 或 /mcp 你的问题（需先启用 MCP）',
                     '- 引用文件：引用 path/to/file.ts:10-30',
                     '- 引用选区：引用当前选区'
@@ -256,25 +302,36 @@ export class QnaViewProvider implements vscode.WebviewViewProvider {
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta http-equiv="Content-Security-Policy" content="${csp}">
-    <style>
-        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; padding: 16px; margin: 0; }
-        h2 { margin-top: 0; color: #4F46E5; }
-        .chat-container { display: flex; flex-direction: column; gap: 8px; height: calc(100vh - 200px); overflow-y: auto; padding: 8px; border: 1px solid #e5e7eb; border-radius: 8px; background: #fafafa; }
-        .message { padding: 10px 12px; border-radius: 8px; font-size: 13px; line-height: 1.5; white-space: pre-wrap; }
-        .user { background: #e0f2fe; align-self: flex-end; }
-        .assistant { background: #f3f4f6; align-self: flex-start; }
-        .input-row { margin-top: 12px; display: flex; gap: 8px; align-items: flex-end; }
-        textarea { flex: 1; padding: 8px 10px; border-radius: 6px; border: 1px solid #d1d5db; min-height: 44px; max-height: 180px; resize: vertical; font-family: inherit; font-size: 13px; line-height: 1.5; }
-        button { padding: 8px 14px; border: none; border-radius: 6px; background: #4F46E5; color: white; cursor: pointer; }
-        button.secondary { background: transparent; border: 1px solid #4F46E5; color: #4F46E5; }
-        button:disabled { background: #cbd5f5; cursor: not-allowed; }
-        .settings { margin-top: 16px; font-size: 12px; color: #6b7280; }
-        .settings button { margin-top: 6px; padding: 6px 12px; }
-    </style>
-</head>
-<body>
-    <h2>Q&A Assistant</h2>
-    <div class="chat-container" id="chat"></div>
+	    <style>
+	        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; padding: 16px; margin: 0; }
+	        h2 { margin-top: 0; color: #4F46E5; }
+	        .toolbar { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+	        .toolbar button { padding: 6px 10px; font-size: 12px; }
+	        .chat-container { display: flex; flex-direction: column; gap: 8px; height: calc(100vh - 200px); overflow-y: auto; padding: 8px; border: 1px solid #e5e7eb; border-radius: 8px; background: #fafafa; }
+	        .message { padding: 10px 12px; border-radius: 8px; font-size: 13px; line-height: 1.5; white-space: pre-wrap; }
+	        .user { background: #e0f2fe; align-self: flex-end; }
+	        .assistant { background: #f3f4f6; align-self: flex-start; }
+	        .input-row { margin-top: 12px; display: flex; gap: 8px; align-items: flex-end; }
+	        textarea { flex: 1; padding: 8px 10px; border-radius: 6px; border: 1px solid #d1d5db; min-height: 44px; max-height: 180px; resize: vertical; font-family: inherit; font-size: 13px; line-height: 1.5; }
+	        button { padding: 8px 14px; border: none; border-radius: 6px; background: #4F46E5; color: white; cursor: pointer; }
+	        button.secondary { background: transparent; border: 1px solid #4F46E5; color: #4F46E5; }
+	        button:disabled { background: #cbd5f5; cursor: not-allowed; }
+	        .settings { margin-top: 16px; font-size: 12px; color: #6b7280; }
+	        .settings button { margin-top: 6px; padding: 6px 12px; }
+	    </style>
+	</head>
+	<body>
+	    <h2>Q&A Assistant</h2>
+	    <div class="toolbar">
+	        <button class="secondary" data-cmd="cline-dify-assistant.showProjectStructure">项目结构</button>
+	        <button class="secondary" data-cmd="cline-dify-assistant.openChangeTracker">变更追踪</button>
+	        <button class="secondary" data-cmd="cline-dify-assistant.executeCommand">运行命令</button>
+	        <button class="secondary" data-cmd="cline-dify-assistant.debugGeneratedCode">测试/调试</button>
+	        <button class="secondary" data-cmd="cline-dify-assistant.copyInstallCommand">复制安装命令</button>
+	        <button class="secondary" data-cmd="cline-dify-assistant.startDualRoleGenerator">生成器</button>
+	        <button class="secondary" data-cmd="cline-dify-assistant.insertSelectionCitation">引用选区</button>
+	    </div>
+	    <div class="chat-container" id="chat"></div>
     <div class="input-row">
         <textarea id="questionInput" placeholder="输入问题（Enter 换行，点击发送）"></textarea>
         <button id="sendButton">发送</button>
@@ -289,11 +346,19 @@ export class QnaViewProvider implements vscode.WebviewViewProvider {
         const vscode = acquireVsCodeApi();
         const chat = document.getElementById('chat');
         const input = document.getElementById('questionInput');
-        const button = document.getElementById('sendButton');
-        const openSettings = document.getElementById('openSettings');
-        const stopButton = document.getElementById('stopButton');
-        const clearChat = document.getElementById('clearChat');
-        let streaming = false;
+	        const button = document.getElementById('sendButton');
+	        const openSettings = document.getElementById('openSettings');
+	        const stopButton = document.getElementById('stopButton');
+	        const clearChat = document.getElementById('clearChat');
+	        let streaming = false;
+
+	        document.querySelectorAll('.toolbar button[data-cmd]').forEach(btn => {
+	            btn.addEventListener('click', () => {
+	                const cmd = btn.getAttribute('data-cmd');
+	                if (!cmd) { return; }
+	                vscode.postMessage({ type: 'executeCommand', command: cmd });
+	            });
+	        });
 
         function renderMessages(messages) {
             chat.innerHTML = '';

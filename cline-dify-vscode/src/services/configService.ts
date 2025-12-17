@@ -133,6 +133,44 @@ export class ConfigService {
                 scope: 'window'
             },
 
+            // Q&A context injection
+            {
+                key: 'qa.includeProjectStructure',
+                defaultValue: true,
+                description: 'Include project structure in Q&A prompts',
+                type: 'boolean',
+                scope: 'workspace'
+            },
+            {
+                key: 'qa.includeDependencies',
+                defaultValue: true,
+                description: 'Include dependency context in Q&A prompts',
+                type: 'boolean',
+                scope: 'workspace'
+            },
+            {
+                key: 'qa.includeLastGenerationRun',
+                defaultValue: true,
+                description: 'Include last generator run summary in Q&A prompts',
+                type: 'boolean',
+                scope: 'workspace'
+            },
+            {
+                key: 'qa.includeGitStatus',
+                defaultValue: true,
+                description: 'Include git status/diff summary in Q&A prompts',
+                type: 'boolean',
+                scope: 'workspace'
+            },
+            {
+                key: 'qa.maxContextChars',
+                defaultValue: 6000,
+                description: 'Maximum context characters appended to Q&A prompts',
+                type: 'number',
+                scope: 'workspace',
+                validate: (value: number) => typeof value === 'number' && value >= 500 && value <= 50000
+            },
+
             // Logging
             {
                 key: 'logLevel',

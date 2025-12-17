@@ -2,7 +2,7 @@
   "name": "cline-dify-assistant",
   "displayName": "Cline Dify Assistant",
   "description": "AI coding assistant powered by Dify backend",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "publisher": "trae-ai",
   "repository": {
     "type": "git",
@@ -34,7 +34,8 @@
     "onCommand:cline-dify-assistant.openChangeTracker",
     "onCommand:cline-dify-assistant.runMcpQuery",
     "onCommand:cline-dify-assistant.insertCodeCitation",
-    "onCommand:cline-dify-assistant.insertSelectionCitation"
+    "onCommand:cline-dify-assistant.insertSelectionCitation",
+    "onCommand:cline-dify-assistant.copyInstallCommand"
   ],
   "main": "./out/extension.js",
   "contributes": {
@@ -94,6 +95,10 @@
       {
         "command": "cline-dify-assistant.insertSelectionCitation",
         "title": "Insert Citation From Selection"
+      },
+      {
+        "command": "cline-dify-assistant.copyInstallCommand",
+        "title": "Copy Install Command From Plan"
       }
     ],
     "menus": {
@@ -268,6 +273,31 @@
           ],
           "default": "ask",
           "description": "Conflict resolution strategy when generating files"
+        },
+        "cline-dify-assistant.qa.includeProjectStructure": {
+          "type": "boolean",
+          "default": true,
+          "description": "Include a brief project structure summary in Q&A prompts"
+        },
+        "cline-dify-assistant.qa.includeDependencies": {
+          "type": "boolean",
+          "default": true,
+          "description": "Include dependency context (package.json / plan deps) in Q&A prompts"
+        },
+        "cline-dify-assistant.qa.includeLastGenerationRun": {
+          "type": "boolean",
+          "default": true,
+          "description": "Include last generator run summary in Q&A prompts"
+        },
+        "cline-dify-assistant.qa.includeGitStatus": {
+          "type": "boolean",
+          "default": true,
+          "description": "Include git status/diff summary in Q&A prompts"
+        },
+        "cline-dify-assistant.qa.maxContextChars": {
+          "type": "number",
+          "default": 6000,
+          "description": "Maximum characters of context appended to Q&A prompts"
         }
       }
     }
