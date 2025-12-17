@@ -116,9 +116,9 @@ class DatabaseMetadataAndSqlGenerationTest {
     // 测试SQL评估功能
     @Test
     void testSqlEvaluation() {
-        // 1. 测试生成SQL和评估（不执行）
+        // 1. 测试生成SQL和评估
         String query1 = "查询部门数量";
-        Map<String, Object> result1 = naturalLanguageQueryService.translateToSqlWithEvaluation(query1);
+        Map<String, Object> result1 = naturalLanguageQueryService.executeNaturalLanguageQueryWithEvaluation(query1);
         assertNotNull(result1);
         assertNotNull(result1.get("query"), "结果中应包含原始查询");
         assertNotNull(result1.get("sql"), "结果中应包含生成的SQL");
@@ -128,9 +128,9 @@ class DatabaseMetadataAndSqlGenerationTest {
         String generatedSql = (String) result1.get("sql");
         assertTrue(llmService.isSqlSafe(generatedSql), "生成的SQL应该是安全的");
         
-        // 2. 测试SQL评估功能（仅测试生成SQL和评估，不执行SQL，避免执行错误影响测试）
+        // 2. 测试SQL评估功能
         String query2 = "查询所有部门";
-        Map<String, Object> result2 = naturalLanguageQueryService.translateToSqlWithEvaluation(query2);
+        Map<String, Object> result2 = naturalLanguageQueryService.executeNaturalLanguageQueryWithEvaluation(query2);
         assertNotNull(result2);
         assertNotNull(result2.get("query"), "结果中应包含原始查询");
         assertNotNull(result2.get("sql"), "结果中应包含生成的SQL");
