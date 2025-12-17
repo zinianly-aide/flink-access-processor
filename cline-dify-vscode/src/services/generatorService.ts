@@ -258,8 +258,14 @@ Example:
     "generatorVersion": "${generatorVersion}",
     "model": "${model}"
   }
-}
-`;
+	}
+	`;
+
+        try {
+            fs.writeFileSync(path.join(projectRoot, 'DEVELOPMENT_PLAN.prompt.txt'), prompt);
+        } catch (error) {
+            this.logger.warn('Failed to write DEVELOPMENT_PLAN.prompt.txt', { error: String(error) });
+        }
 
         const raw = await this.difyService.getModelResponse(prompt, '规划 JSON', { model, temperature, maxTokens });
         if (!raw?.trim()) {
@@ -269,7 +275,7 @@ Example:
 
         const plan = this.parseJsonFromModel(raw);
         if (!plan) {
-            const repaired = await this.tryRepairPlanJson(raw, 'JSON parse failed');
+            const repaired = await this.tryRepairPlanJson(raw, 'JSON parse failed', projectRoot);
             if (!repaired) {
                 this.reportPlanFailure('JSON parse failed', raw, projectRoot);
                 return null;
@@ -282,7 +288,7 @@ Example:
             return validated.plan;
         }
 
-        const repaired = await this.tryRepairPlanJson(raw, validated.error);
+        const repaired = await this.tryRepairPlanJson(raw, validated.error, projectRoot);
         if (repaired) {
             return repaired;
         }
@@ -560,9 +566,14 @@ Example:
         }
     }
 
-    private async tryRepairPlanJson(raw: string, reason: string): Promise<ProjectPlan | null> {
+    private async tryRepairPlanJson(raw: string, reason: string, projectRoot: string): Promise<ProjectPlan | null> {
         const { model, temperature, maxTokens } = this.getGenerationOptions();
         const prompt = `You will be given an invalid JSON draft.\nFix it into valid JSON that conforms to this plan schema exactly.\nOutput ONLY valid JSON.\n\nFailure reason:\n${reason}\n\nInvalid draft:\n${raw}`;
+        try {
+            fs.writeFileSync(path.join(projectRoot, 'DEVELOPMENT_PLAN.repair_prompt.txt'), prompt);
+        } catch (error) {
+            this.logger.warn('Failed to write DEVELOPMENT_PLAN.repair_prompt.txt', { error: String(error) });
+        }
         const repairedRaw = await this.difyService.getModelResponse(prompt, '修复规划 JSON', { model, temperature, maxTokens });
         if (!repairedRaw) {
             return null;
@@ -591,6 +602,11 @@ Example:
     }
 
     private reportPlanFailure(reason: string, raw: string, projectRoot: string): void {
+        const provider = this.configService.get<string>('provider');
+        const baseUrl = provider === 'ollama'
+            ? this.configService.get<string>('ollamaBaseUrl')
+            : this.configService.get<string>('baseUrl');
+        const model = this.getConfiguredModel();
         const outputPath = path.join(projectRoot, 'DEVELOPMENT_PLAN.raw.txt');
         try {
             fs.writeFileSync(outputPath, raw);
@@ -600,13 +616,20 @@ Example:
 
         this.outputChannel.appendLine('[Plan Validation Failed]');
         this.outputChannel.appendLine(`Reason: ${reason}`);
+        this.outputChannel.appendLine(`Provider: ${provider}`);
+        this.outputChannel.appendLine(`Base URL: ${baseUrl}`);
+        this.outputChannel.appendLine(`Model: ${model}`);
         this.outputChannel.appendLine('Raw response saved to DEVELOPMENT_PLAN.raw.txt');
+        this.outputChannel.appendLine('Prompt saved to DEVELOPMENT_PLAN.prompt.txt');
         this.outputChannel.appendLine('----- RAW START -----');
         this.outputChannel.appendLine(raw);
         this.outputChannel.appendLine('----- RAW END -----');
         this.outputChannel.show(true);
 
-        this.logger.showWarning(`Structured plan invalid: ${reason}. 已保存原始输出到 DEVELOPMENT_PLAN.raw.txt。`);
+        const hint = provider === 'ollama'
+            ? '（提示：请确认 Ollama 服务已启动且 baseUrl 可访问，例如 http://localhost:11434）'
+            : '';
+        this.logger.showWarning(`Structured plan invalid: ${reason}. 已保存 DEVELOPMENT_PLAN.raw.txt / DEVELOPMENT_PLAN.prompt.txt。${hint}`);
     }
 
     private coercePlanShape(plan: any): { plan: ProjectPlan; warnings: string[] } {

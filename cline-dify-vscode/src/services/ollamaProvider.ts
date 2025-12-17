@@ -27,11 +27,22 @@ export class OllamaProvider implements AIProvider {
             model: options?.model || this.defaultModel,
             prompt,
             temperature: options?.temperature || 0.7,
-            max_tokens: options?.maxTokens || 2048,
-            stop: options?.stop
+            num_predict: options?.maxTokens || 2048,
+            stop: options?.stop,
+            stream: false
         });
 
-        return response.data.response;
+        const data = response.data;
+        if (typeof data?.response === 'string') {
+            return data.response;
+        }
+        if (typeof data?.message?.content === 'string') {
+            return data.message.content;
+        }
+        if (typeof data === 'string') {
+            return data;
+        }
+        return JSON.stringify(data);
     }
 
     async chat(messages: ChatCompletionRequestMessage[], options?: ChatOptions): Promise<string> {
@@ -39,7 +50,7 @@ export class OllamaProvider implements AIProvider {
             model: options?.model || this.defaultModel,
             messages,
             temperature: options?.temperature || 0.7,
-            max_tokens: options?.maxTokens || 2048,
+            num_predict: options?.maxTokens || 2048,
             stop: options?.stop,
             stream: false
         });
@@ -79,7 +90,7 @@ export class OllamaProvider implements AIProvider {
                     model: options?.model || this.defaultModel,
                     messages,
                     temperature: options?.temperature || 0.7,
-                    max_tokens: options?.maxTokens || 2048,
+                    num_predict: options?.maxTokens || 2048,
                     stop: options?.stop,
                     stream: true
                 },
