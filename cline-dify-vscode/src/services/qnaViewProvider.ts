@@ -214,6 +214,7 @@ export class QnaViewProvider implements vscode.WebviewViewProvider {
                     '- 查看变更：查看变更 / diff',
                     '- 运行生成器调试：调试生成器 / 运行生成代码',
                     '- 安装依赖：安装依赖 / 复制安装命令（需要先生成 DEVELOPMENT_PLAN.json）',
+                    '- 下一步建议：下一步怎么做 / next steps（生成 NEXT_STEPS.md）',
                     '- MCP：mcp: 你的问题 或 /mcp 你的问题（需先启用 MCP）',
                     '- 引用文件：引用 path/to/file.ts:10-30',
                     '- 引用选区：引用当前选区'
@@ -328,6 +329,7 @@ export class QnaViewProvider implements vscode.WebviewViewProvider {
 	        <button class="secondary" data-cmd="cline-dify-assistant.executeCommand">运行命令</button>
 	        <button class="secondary" data-cmd="cline-dify-assistant.debugGeneratedCode">测试/调试</button>
 	        <button class="secondary" data-cmd="cline-dify-assistant.copyInstallCommand">复制安装命令</button>
+	        <button class="secondary" data-cmd="cline-dify-assistant.generateNextSteps">下一步建议</button>
 	        <button class="secondary" data-cmd="cline-dify-assistant.startDualRoleGenerator">生成器</button>
 	        <button class="secondary" data-cmd="cline-dify-assistant.insertSelectionCitation">引用选区</button>
 	    </div>

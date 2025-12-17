@@ -10,6 +10,7 @@ import { ConfigService } from './configService';
 import { pickWorkspaceFolder } from './workspaceService';
 import { DependencyService } from './dependencyService';
 import * as os from 'os';
+import { ProjectContextService } from './projectContextService';
 
 const execAsync = util.promisify(exec);
 
@@ -20,6 +21,7 @@ export class GeneratorService {
     private logger: LoggerService;
     private outputChannel: vscode.OutputChannel;
     private dependencyService: DependencyService;
+    private projectContext: ProjectContextService;
 
     constructor(context: vscode.ExtensionContext, difyService: DifyService) {
         this.context = context;
@@ -28,6 +30,7 @@ export class GeneratorService {
         this.logger = new LoggerService();
         this.outputChannel = vscode.window.createOutputChannel('Cline Dify Generator');
         this.dependencyService = new DependencyService();
+        this.projectContext = new ProjectContextService();
     }
 
     private logPlanDebug(message: string, metadata?: Record<string, unknown>): void {
@@ -165,6 +168,7 @@ export class GeneratorService {
                 run.endedAt = new Date().toISOString();
                 await this.writeGenerationRun(workspaceFolder.uri.fsPath, run);
                 this.logger.showInfo('Dry run 完成：未写入任何文件。已生成 GENERATION_RUN.json。');
+                await this.maybeGenerateNextSteps(workspaceFolder.uri.fsPath);
                 await this.offerContinueInQna();
                 return;
             }
@@ -173,6 +177,7 @@ export class GeneratorService {
             run.result = await this.generateCodeFromPlan(plan, selected, workspaceFolder.uri.fsPath);
             run.endedAt = new Date().toISOString();
             await this.writeGenerationRun(workspaceFolder.uri.fsPath, run);
+            await this.maybeGenerateNextSteps(workspaceFolder.uri.fsPath);
             await this.offerContinueInQna();
         });
     }
@@ -643,6 +648,103 @@ Example:
                 await vscode.window.showTextDocument(vscode.Uri.file(result.markdownPath), { preview: false });
             }
         }
+    }
+
+    public async generateNextSteps(): Promise<void> {
+        const workspaceFolder = await pickWorkspaceFolder('选择要生成 NEXT_STEPS.md 的工作区文件夹');
+        if (!workspaceFolder) {
+            vscode.window.showErrorMessage('No workspace folder open.');
+            return;
+        }
+
+        const filePath = await this.generateNextStepsForProject(workspaceFolder.uri.fsPath);
+        if (!filePath) {
+            return;
+        }
+        await vscode.window.showTextDocument(vscode.Uri.file(filePath), { preview: false, viewColumn: vscode.ViewColumn.Beside });
+    }
+
+    private async maybeGenerateNextSteps(projectRoot: string): Promise<void> {
+        const enabled = this.configService.get<boolean>('generator.autoNextSteps');
+        if (!enabled) {
+            return;
+        }
+
+        const filePath = await this.generateNextStepsForProject(projectRoot);
+        if (!filePath) {
+            return;
+        }
+
+        const picked = await this.logger.showInfo('已生成 NEXT_STEPS.md（规划建议）。', ['打开', '稍后']);
+        if (picked === '打开') {
+            await vscode.window.showTextDocument(vscode.Uri.file(filePath), { preview: false, viewColumn: vscode.ViewColumn.Beside });
+        }
+    }
+
+    private async generateNextStepsForProject(projectRoot: string): Promise<string | null> {
+        const planPath = path.join(projectRoot, 'DEVELOPMENT_PLAN.json');
+        const runPath = path.join(projectRoot, 'GENERATION_RUN.json');
+
+        if (!fs.existsSync(planPath)) {
+            this.logger.showWarning('未找到 DEVELOPMENT_PLAN.json，无法生成 NEXT_STEPS.md。');
+            return null;
+        }
+
+        const planRaw = fs.readFileSync(planPath, 'utf8');
+        const runRaw = fs.existsSync(runPath) ? fs.readFileSync(runPath, 'utf8') : '';
+        const packageJsonPath = path.join(projectRoot, 'package.json');
+        const packageRaw = fs.existsSync(packageJsonPath) ? fs.readFileSync(packageJsonPath, 'utf8') : '';
+
+        const context = await this.projectContext.build(projectRoot, {
+            includeProjectStructure: true,
+            includeDependencies: true,
+            includeLastGenerationRun: true,
+            includeGitStatus: true,
+            maxChars: 5000
+        });
+
+        const prompt = `You are the Planner agent for a freshly generated project.
+
+Goal: proactively guide the user to successfully install dependencies, run, test, and iterate.
+
+Inputs:
+- DEVELOPMENT_PLAN.json (authoritative plan)
+- GENERATION_RUN.json (what was actually generated)
+- package.json (if present)
+- Additional context (structure/deps/git)
+
+Requirements:
+- Output ONLY Markdown.
+- Start with a short "Summary" section.
+- Then output a checklist "Next Steps" with concrete commands and expected outcomes.
+- Include a "Troubleshooting" section with likely errors and fixes.
+- When suggesting commands that modify files or run potentially destructive actions, ask the user to confirm first.
+- Suggest using VS Code extension features when helpful: Project Structure, Change Tracker, Execute Command, Debug Generated Code, Q&A.
+
+DEVELOPMENT_PLAN.json:
+${planRaw}
+
+GENERATION_RUN.json:
+${runRaw || '(missing)'}
+
+package.json:
+${packageRaw || '(missing)'}
+
+Context:
+${context || '(none)'}
+`;
+
+        const { model, temperature, maxTokens } = this.getGenerationOptions();
+        const markdown = await this.difyService.getModelResponse(prompt, '下一步建议', { model, temperature, maxTokens });
+        if (!markdown?.trim()) {
+            this.outputChannel.appendLine('[next] Empty response from model');
+            this.outputChannel.show(true);
+            return null;
+        }
+
+        const outPath = path.join(projectRoot, 'NEXT_STEPS.md');
+        fs.writeFileSync(outPath, markdown.trimEnd() + os.EOL);
+        return outPath;
     }
 
     private async previewPlanAndSelectFiles(plan: ProjectPlan, projectRoot: string): Promise<string[] | null> {

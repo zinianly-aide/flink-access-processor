@@ -116,6 +116,13 @@ export class ConfigService {
                 scope: 'workspace',
                 validate: (value: string) => ['overwrite', 'skip', 'merge', 'ask'].includes(value)
             },
+            {
+                key: 'generator.autoNextSteps',
+                defaultValue: true,
+                description: 'Generate NEXT_STEPS.md after generator run',
+                type: 'boolean',
+                scope: 'workspace'
+            },
             
             // UI configuration
             {
