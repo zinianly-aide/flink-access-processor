@@ -74,7 +74,7 @@ export class GeneratorService {
         await this.logger.showProgress('Starting Dual-Role Generator...', async (progress) => {
             // Step 1: Planner Role - Generate Development Documentation
             progress.report({ message: 'Generating structured plan (JSON)...' });
-            const plan = await this.generateStructuredPlan(projectDescription);
+            const plan = await this.generateStructuredPlan(projectDescription, workspaceFolder.uri.fsPath);
             if (!plan) {
                 this.logger.showWarning('Failed to generate a valid structured plan.');
                 return;
@@ -167,7 +167,7 @@ export class GeneratorService {
     /**
      * Planner Role: Generate structured plan JSON
      */
-    private async generateStructuredPlan(projectDescription: string): Promise<ProjectPlan | null> {
+    private async generateStructuredPlan(projectDescription: string, projectRoot: string): Promise<ProjectPlan | null> {
         const generatorVersion = this.getExtensionVersion();
         const { model, temperature, maxTokens } = this.getGenerationOptions();
         const prompt = `You are an expert AI development planner.
@@ -261,15 +261,26 @@ Example:
 
         const plan = this.parseJsonFromModel(raw);
         if (!plan) {
-            const repaired = await this.tryRepairPlanJson(raw);
+            const repaired = await this.tryRepairPlanJson(raw, 'JSON parse failed');
             if (!repaired) {
+                this.reportPlanFailure('JSON parse failed', raw, projectRoot);
                 return null;
             }
             return repaired;
         }
 
         const validated = this.validatePlan(plan);
-        return validated.ok ? validated.plan : null;
+        if (validated.ok) {
+            return validated.plan;
+        }
+
+        const repaired = await this.tryRepairPlanJson(raw, validated.error);
+        if (repaired) {
+            return repaired;
+        }
+
+        this.reportPlanFailure(validated.error, raw, projectRoot);
+        return null;
     }
 
     /**
@@ -529,26 +540,21 @@ Example:
 
     private parseJsonFromModel(raw: string): ProjectPlan | null {
         const trimmed = raw.trim();
+        const candidate = this.extractJsonBlock(trimmed);
+        if (!candidate) {
+            return null;
+        }
+
         try {
-            return JSON.parse(trimmed) as ProjectPlan;
+            return JSON.parse(candidate) as ProjectPlan;
         } catch {
-            const first = trimmed.indexOf('{');
-            const last = trimmed.lastIndexOf('}');
-            if (first >= 0 && last > first) {
-                const slice = trimmed.slice(first, last + 1);
-                try {
-                    return JSON.parse(slice) as ProjectPlan;
-                } catch {
-                    return null;
-                }
-            }
             return null;
         }
     }
 
-    private async tryRepairPlanJson(raw: string): Promise<ProjectPlan | null> {
+    private async tryRepairPlanJson(raw: string, reason: string): Promise<ProjectPlan | null> {
         const { model, temperature, maxTokens } = this.getGenerationOptions();
-        const prompt = `You will be given an invalid JSON draft.\nFix it into valid JSON that conforms to this plan schema exactly.\nOutput ONLY valid JSON.\n\nInvalid draft:\n${raw}`;
+        const prompt = `You will be given an invalid JSON draft.\nFix it into valid JSON that conforms to this plan schema exactly.\nOutput ONLY valid JSON.\n\nFailure reason:\n${reason}\n\nInvalid draft:\n${raw}`;
         const repairedRaw = await this.difyService.getModelResponse(prompt, '修复规划 JSON', { model, temperature, maxTokens });
         if (!repairedRaw) {
             return null;
@@ -559,6 +565,40 @@ Example:
         }
         const validated = this.validatePlan(plan);
         return validated.ok ? validated.plan : null;
+    }
+
+    private extractJsonBlock(raw: string): string | null {
+        const fenceMatch = raw.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
+        if (fenceMatch && fenceMatch[1]) {
+            return fenceMatch[1].trim();
+        }
+
+        const first = raw.indexOf('{');
+        const last = raw.lastIndexOf('}');
+        if (first >= 0 && last > first) {
+            return raw.slice(first, last + 1).trim();
+        }
+
+        return null;
+    }
+
+    private reportPlanFailure(reason: string, raw: string, projectRoot: string): void {
+        const outputPath = path.join(projectRoot, 'DEVELOPMENT_PLAN.raw.txt');
+        try {
+            fs.writeFileSync(outputPath, raw);
+        } catch (error) {
+            this.logger.warn('Failed to write raw plan output', { error: String(error) });
+        }
+
+        this.outputChannel.appendLine('[Plan Validation Failed]');
+        this.outputChannel.appendLine(`Reason: ${reason}`);
+        this.outputChannel.appendLine('Raw response saved to DEVELOPMENT_PLAN.raw.txt');
+        this.outputChannel.appendLine('----- RAW START -----');
+        this.outputChannel.appendLine(raw);
+        this.outputChannel.appendLine('----- RAW END -----');
+        this.outputChannel.show(true);
+
+        this.logger.showWarning(`Structured plan invalid: ${reason}. 已保存原始输出到 DEVELOPMENT_PLAN.raw.txt。`);
     }
 
     /* eslint-disable no-mixed-spaces-and-tabs */

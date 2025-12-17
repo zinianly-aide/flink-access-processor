@@ -263,8 +263,8 @@ export class QnaViewProvider implements vscode.WebviewViewProvider {
         .message { padding: 10px 12px; border-radius: 8px; font-size: 13px; line-height: 1.5; white-space: pre-wrap; }
         .user { background: #e0f2fe; align-self: flex-end; }
         .assistant { background: #f3f4f6; align-self: flex-start; }
-        .input-row { margin-top: 12px; display: flex; gap: 8px; }
-        input { flex: 1; padding: 8px 10px; border-radius: 6px; border: 1px solid #d1d5db; }
+        .input-row { margin-top: 12px; display: flex; gap: 8px; align-items: flex-end; }
+        textarea { flex: 1; padding: 8px 10px; border-radius: 6px; border: 1px solid #d1d5db; min-height: 44px; max-height: 180px; resize: vertical; font-family: inherit; font-size: 13px; line-height: 1.5; }
         button { padding: 8px 14px; border: none; border-radius: 6px; background: #4F46E5; color: white; cursor: pointer; }
         button.secondary { background: transparent; border: 1px solid #4F46E5; color: #4F46E5; }
         button:disabled { background: #cbd5f5; cursor: not-allowed; }
@@ -276,7 +276,7 @@ export class QnaViewProvider implements vscode.WebviewViewProvider {
     <h2>Q&A Assistant</h2>
     <div class="chat-container" id="chat"></div>
     <div class="input-row">
-        <input id="questionInput" type="text" placeholder="输入问题并按下发送" />
+        <textarea id="questionInput" placeholder="输入问题（Enter 换行，点击发送）"></textarea>
         <button id="sendButton">发送</button>
         <button id="stopButton" class="secondary" disabled>停止</button>
     </div>
@@ -320,12 +320,6 @@ export class QnaViewProvider implements vscode.WebviewViewProvider {
             setStreamingState(true);
             vscode.postMessage({ type: 'askQuestion', text: value });
             input.value = '';
-        });
-
-        input.addEventListener('keydown', (event) => {
-            if (event.key === 'Enter') {
-                button.click();
-            }
         });
 
         stopButton.addEventListener('click', () => {
