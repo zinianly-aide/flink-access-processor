@@ -21,7 +21,7 @@ export function activate(context: vscode.ExtensionContext) {
     // Register view providers for sidebar
     const settingsViewProvider = new SettingsViewProvider(context.extensionUri, context);
     const featuresViewProvider = new FeaturesViewProvider(context.extensionUri, context);
-    const qnaViewProvider = new QnaViewProvider(context.extensionUri, difyService, mcpService, citationService);
+    const qnaViewProvider = new QnaViewProvider(context.extensionUri, context, difyService, mcpService, citationService);
 
     context.subscriptions.push(
         vscode.window.registerWebviewViewProvider(SettingsViewProvider.viewType, settingsViewProvider),

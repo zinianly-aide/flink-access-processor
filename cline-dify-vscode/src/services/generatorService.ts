@@ -7,6 +7,7 @@ import { DifyService } from './difyService';
 import { ProjectPlan, ConflictStrategy } from './types';
 import { LoggerService } from './loggerService';
 import { ConfigService } from './configService';
+import { pickWorkspaceFolder } from './workspaceService';
 
 const execAsync = util.promisify(exec);
 
@@ -29,7 +30,7 @@ export class GeneratorService {
      * Start the dual-role generator workflow
      */
     public async startDualRoleGenerator() {
-        const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+        const workspaceFolder = await pickWorkspaceFolder('选择用于生成代码的工作区文件夹');
         if (!workspaceFolder) {
             this.logger.showWarning('No workspace folder open.');
             return;
@@ -80,7 +81,7 @@ export class GeneratorService {
 
             // Step 3: Executor Role - Generate Code Based on Documentation
             progress.report({ message: 'Previewing planned changes...' });
-            const selected = await this.previewPlanAndSelectFiles(plan);
+            const selected = await this.previewPlanAndSelectFiles(plan, workspaceFolder.uri.fsPath);
             if (!selected) {
                 return;
             }
@@ -315,7 +316,7 @@ Example:
      * Debug generated code
      */
     public async debugGeneratedCode() {
-        const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+        const workspaceFolder = await pickWorkspaceFolder('选择要运行调试命令的工作区文件夹');
         if (!workspaceFolder) {
             vscode.window.showErrorMessage('No workspace folder open.');
             return;
@@ -351,12 +352,7 @@ Example:
         }
     }
 
-    private async previewPlanAndSelectFiles(plan: ProjectPlan): Promise<string[] | null> {
-        const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
-        if (!workspaceFolder) {
-            this.logger.showWarning('No workspace folder open.');
-            return null;
-        }
+    private async previewPlanAndSelectFiles(plan: ProjectPlan, projectRoot: string): Promise<string[] | null> {
 
         const fileItems = plan.files
             .map(file => {
@@ -364,7 +360,7 @@ Example:
                 if (!normalized) {
                     return null;
                 }
-                const absolute = path.join(workspaceFolder.uri.fsPath, normalized);
+                const absolute = path.join(projectRoot, normalized);
                 const exists = fs.existsSync(absolute);
                 return {
                     label: normalized,
@@ -408,8 +404,8 @@ Example:
                 directoriesToCreate.add(dirName);
             }
         });
-        const newDirectories = Array.from(directoriesToCreate).filter(dir => !fs.existsSync(path.join(workspaceFolder.uri.fsPath, dir)));
-        const existingFiles = selected.filter(file => fs.existsSync(path.join(workspaceFolder.uri.fsPath, file)));
+        const newDirectories = Array.from(directoriesToCreate).filter(dir => !fs.existsSync(path.join(projectRoot, dir)));
+        const existingFiles = selected.filter(file => fs.existsSync(path.join(projectRoot, file)));
 
         const confirmation = await this.logger.showInfo(
             `预览：将生成 ${selected.length} 个文件（其中 ${existingFiles.length} 个已存在），并创建 ${newDirectories.length} 个目录（若不存在）。继续吗？`,

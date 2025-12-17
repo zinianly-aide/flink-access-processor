@@ -5,6 +5,7 @@ import { CitationService } from './citationService';
 import { LoggerService } from './loggerService';
 import { ConfigService } from './configService';
 import { escapeHtml, getDefaultCsp, getNonce } from './webviewSecurity';
+import { StreamHandle } from './aiProvider';
 
 interface ChatMessage {
     role: 'user' | 'assistant';
@@ -16,9 +17,12 @@ export class QnaViewProvider implements vscode.WebviewViewProvider {
 
     private _view?: vscode.WebviewView;
     private messages: ChatMessage[] = [];
+    private readonly stateKey = 'cline-dify-assistant.qna.messages';
     private readonly logger: LoggerService;
     private readonly configService: ConfigService;
     private configWatchDisposable?: vscode.Disposable;
+    private currentStream?: StreamHandle;
+    private saveTimer?: NodeJS.Timeout;
     private readonly commandMappings: Array<{ pattern: RegExp; command: string; successMessage: string }> = [
         { pattern: /(打开|设置).*(配置|设置)/i, command: 'cline-dify-assistant.configureSettings', successMessage: '已启动配置命令，可在命令面板中继续操作。' },
         { pattern: /(查看|显示).*(结构|目录)/i, command: 'cline-dify-assistant.showProjectStructure', successMessage: '已打开项目结构视图。' },
@@ -28,12 +32,14 @@ export class QnaViewProvider implements vscode.WebviewViewProvider {
 
     constructor(
         private readonly extensionUri: vscode.Uri,
+        private readonly context: vscode.ExtensionContext,
         private readonly difyService: DifyService,
         private readonly mcpService: McpService,
         private readonly citationService: CitationService
     ) {
         this.logger = new LoggerService();
         this.configService = new ConfigService();
+        this.loadMessages();
         
         // Watch for configuration changes
         this.configWatchDisposable = this.configService.watch((key, newValue, oldValue) => {
@@ -61,6 +67,14 @@ export class QnaViewProvider implements vscode.WebviewViewProvider {
                 case 'askQuestion':
                     await this.handleQuestion(message.text);
                     break;
+                case 'cancelStream':
+                    this.cancelCurrentStream();
+                    break;
+                case 'clearChat':
+                    this.messages = [];
+                    this.saveMessages();
+                    this.postMessages();
+                    break;
                 case 'openSettings':
                     vscode.commands.executeCommand('cline-dify-assistant.configureSettings');
                     break;
@@ -77,6 +91,12 @@ export class QnaViewProvider implements vscode.WebviewViewProvider {
     private async handleQuestion(text: string) {
         const trimmed = (text ?? '').trim();
         if (!trimmed) {
+            return;
+        }
+
+        if (this.currentStream) {
+            this.messages.push({ role: 'assistant', content: '当前正在生成中，请点击“停止”或等待本次生成结束。' });
+            this.postMessages();
             return;
         }
 
@@ -105,7 +125,8 @@ export class QnaViewProvider implements vscode.WebviewViewProvider {
 
         // Use streaming response
         let accumulatedResponse = '';
-        await this.difyService.getModelStreamResponse(
+        this.postStreamingState(true);
+        const handle = await this.difyService.getModelStreamResponse(
             trimmed, 
             'Q&A',
             (chunk) => {
@@ -117,6 +138,14 @@ export class QnaViewProvider implements vscode.WebviewViewProvider {
                 this.logger.info('Streaming response completed');
             }
         );
+        this.currentStream = handle ?? undefined;
+
+        try {
+            await this.currentStream?.done;
+        } finally {
+            this.currentStream = undefined;
+            this.postStreamingState(false);
+        }
 
         // Ensure we have a response
         if (!accumulatedResponse.trim()) {
@@ -182,6 +211,11 @@ export class QnaViewProvider implements vscode.WebviewViewProvider {
 
     private postMessages() {
         this._view?.webview.postMessage({ type: 'updateMessages', messages: this.messages });
+        this.scheduleSaveMessages();
+    }
+
+    private postStreamingState(streaming: boolean) {
+        this._view?.webview.postMessage({ type: 'streamingState', streaming });
     }
 
     private getHtml(webview: vscode.Webview, _messages: ChatMessage[]): string {
@@ -210,9 +244,10 @@ export class QnaViewProvider implements vscode.WebviewViewProvider {
         .input-row { margin-top: 12px; display: flex; gap: 8px; }
         input { flex: 1; padding: 8px 10px; border-radius: 6px; border: 1px solid #d1d5db; }
         button { padding: 8px 14px; border: none; border-radius: 6px; background: #4F46E5; color: white; cursor: pointer; }
+        button.secondary { background: transparent; border: 1px solid #4F46E5; color: #4F46E5; }
         button:disabled { background: #cbd5f5; cursor: not-allowed; }
         .settings { margin-top: 16px; font-size: 12px; color: #6b7280; }
-        .settings button { margin-top: 6px; background: transparent; border: 1px solid #4F46E5; color: #4F46E5; padding: 6px 12px; }
+        .settings button { margin-top: 6px; padding: 6px 12px; }
     </style>
 </head>
 <body>
@@ -221,10 +256,12 @@ export class QnaViewProvider implements vscode.WebviewViewProvider {
     <div class="input-row">
         <input id="questionInput" type="text" placeholder="输入问题并按下发送" />
         <button id="sendButton">发送</button>
+        <button id="stopButton" class="secondary" disabled>停止</button>
     </div>
     <div class="settings">
         当前 Provider: <strong>${safeProvider}</strong> · Model: <strong>${safeModel}</strong><br>
-        <button id="openSettings">打开配置</button>
+        <button id="openSettings" class="secondary">打开配置</button>
+        <button id="clearChat" class="secondary">清空对话</button>
     </div>
     <script nonce="${nonce}">
         const vscode = acquireVsCodeApi();
@@ -232,6 +269,9 @@ export class QnaViewProvider implements vscode.WebviewViewProvider {
         const input = document.getElementById('questionInput');
         const button = document.getElementById('sendButton');
         const openSettings = document.getElementById('openSettings');
+        const stopButton = document.getElementById('stopButton');
+        const clearChat = document.getElementById('clearChat');
+        let streaming = false;
 
         function renderMessages(messages) {
             chat.innerHTML = '';
@@ -244,19 +284,34 @@ export class QnaViewProvider implements vscode.WebviewViewProvider {
             chat.scrollTop = chat.scrollHeight;
         }
 
+        function setStreamingState(next) {
+            streaming = !!next;
+            button.disabled = streaming;
+            stopButton.disabled = !streaming;
+            input.disabled = streaming;
+        }
+
         button.addEventListener('click', () => {
+            if (streaming) { return; }
             const value = input.value.trim();
             if (!value) { return; }
-            button.disabled = true;
+            setStreamingState(true);
             vscode.postMessage({ type: 'askQuestion', text: value });
             input.value = '';
-            setTimeout(() => { button.disabled = false; }, 300);
         });
 
         input.addEventListener('keydown', (event) => {
             if (event.key === 'Enter') {
                 button.click();
             }
+        });
+
+        stopButton.addEventListener('click', () => {
+            vscode.postMessage({ type: 'cancelStream' });
+        });
+
+        clearChat.addEventListener('click', () => {
+            vscode.postMessage({ type: 'clearChat' });
         });
 
         openSettings.addEventListener('click', () => {
@@ -268,9 +323,42 @@ export class QnaViewProvider implements vscode.WebviewViewProvider {
             if (message.type === 'updateMessages') {
                 renderMessages(message.messages || []);
             }
+            if (message.type === 'streamingState') {
+                setStreamingState(message.streaming);
+            }
         });
+
+        setStreamingState(false);
     </script>
 </body>
 </html>`;
+    }
+
+    private cancelCurrentStream() {
+        if (!this.currentStream) {
+            return;
+        }
+        this.currentStream.cancel();
+        this.currentStream = undefined;
+        this.postStreamingState(false);
+    }
+
+    private loadMessages() {
+        const stored = this.context.workspaceState.get<ChatMessage[]>(this.stateKey, []);
+        this.messages = Array.isArray(stored) ? stored.slice(-100) : [];
+    }
+
+    private scheduleSaveMessages() {
+        if (this.saveTimer) {
+            clearTimeout(this.saveTimer);
+        }
+        this.saveTimer = setTimeout(() => {
+            this.saveMessages();
+        }, 300);
+    }
+
+    private saveMessages() {
+        const trimmed = this.messages.slice(-100);
+        void this.context.workspaceState.update(this.stateKey, trimmed);
     }
 }

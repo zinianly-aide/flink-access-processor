@@ -1,12 +1,13 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import * as fs from 'fs';
+import { pickWorkspaceFolder } from './workspaceService';
 
 export class CitationService {
     constructor(private readonly context: vscode.ExtensionContext) {}
 
     public async insertCitationInteractive() {
-        const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+        const workspaceFolder = await pickWorkspaceFolder('选择要引用的工作区文件夹');
         if (!workspaceFolder) {
             vscode.window.showErrorMessage('No workspace folder open.');
             return;
@@ -63,7 +64,7 @@ export class CitationService {
     }
 
     public async handleCitationRequest(message: string): Promise<string | null> {
-        const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+        const workspaceFolder = await pickWorkspaceFolder('选择要引用的工作区文件夹');
         if (!workspaceFolder) {
             return '无法引用：当前没有打开工作区。';
         }

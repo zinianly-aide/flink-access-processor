@@ -6,6 +6,7 @@ import { ConfigService } from './configService';
 import { LoggerService } from './loggerService';
 import { ChatCompletionRequestMessage } from './types';
 import { escapeHtml, getDefaultCsp, getNonce } from './webviewSecurity';
+import { StreamHandle } from './aiProvider';
 
 const SUPPORTED_COMPLETION_LANGUAGES = new Set([
     'javascript',
@@ -195,7 +196,7 @@ export class DifyService {
         contextLabel: string = 'Processing',
         callback: (chunk: string) => void,
         doneCallback?: () => void
-    ): Promise<void> {
+    ): Promise<StreamHandle | null> {
         try {
             this.setStatus(contextLabel, true);
             this.logger.debug('Getting streaming model response', { prompt: prompt.substring(0, 100) + '...' });
@@ -213,19 +214,28 @@ export class DifyService {
             
             const streamHandle = await this.getProvider().stream(messages, undefined, callback);
 
-            try {
-                await streamHandle.done;
-                doneCallback?.();
-                this.logger.info('Streaming model response completed');
-            } finally {
-                this.setStatus('Idle', false);
-            }
+            streamHandle.done
+                .then(() => {
+                    doneCallback?.();
+                    this.logger.info('Streaming model response completed');
+                    this.setStatus('Idle', false);
+                })
+                .catch((error) => {
+                    const err = error instanceof Error ? error : new Error(String(error));
+                    this.logger.error('Streaming model response failed:', err);
+                    const providerType = this.configService.get<string>('provider');
+                    this.showErrorWithActions(`Streaming response failed from ${providerType}.`, err);
+                    this.setStatus('Error', false);
+                });
+
+            return streamHandle;
         } catch (error) {
             const err = error instanceof Error ? error : new Error(String(error));
             this.logger.error('Error calling AI backend:', err);
             const providerType = this.configService.get<string>('provider');
             this.showErrorWithActions(`Failed to get streaming response from ${providerType}. Please verify your configuration.`, err);
             this.setStatus('Error', false);
+            return null;
         }
     }
 

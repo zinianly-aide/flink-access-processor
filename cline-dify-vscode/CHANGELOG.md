@@ -9,3 +9,8 @@
 - Streaming: wait for real stream completion before marking idle
 - Safety: command execution default disabled; whitelist + operator blocking; streamed/cancellable execution
 - Networking: add request timeout defaults for non-stream requests
+
+## 0.2.2
+- Multi-root: pick workspace folder for generator/project tools/citations/change tracker
+- Q&A: persistent chat history + stop/clear controls
+- Change Tracker: file list + per-file diff loading + open diff in editor

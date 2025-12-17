@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
 import { spawn } from 'child_process';
+import { pickWorkspaceFolder } from './workspaceService';
 
 const SENSITIVE_TOKENS = ['rm ', 'rm-', 'mv ', 'sudo', 'chmod', 'chown', 'mkfs', ':(){', 'shutdown', 'reboot'];
 
@@ -24,7 +25,7 @@ export class ProjectService {
             return;
         }
 
-        const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+        const workspaceFolder = await pickWorkspaceFolder('选择要生成目录结构的工作区文件夹');
         if (!workspaceFolder) {
             vscode.window.showErrorMessage('No workspace folder open.');
             return;
@@ -74,7 +75,7 @@ export class ProjectService {
      * Execute command line commands
      */
     public async executeCommand() {
-        const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+        const workspaceFolder = await pickWorkspaceFolder('选择要执行命令的工作区文件夹');
         if (!workspaceFolder) {
             vscode.window.showErrorMessage('No workspace folder open.');
             return;
@@ -221,7 +222,7 @@ export class ProjectService {
      * Show project structure
      */
     public async showProjectStructure() {
-        const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+        const workspaceFolder = await pickWorkspaceFolder('选择要查看结构的工作区文件夹');
         if (!workspaceFolder) {
             vscode.window.showErrorMessage('No workspace folder open.');
             return;
@@ -249,7 +250,7 @@ export class ProjectService {
      * Read and display file content
      */
     public async readFileContent() {
-        const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+        const workspaceFolder = await pickWorkspaceFolder('选择要读取文件的工作区文件夹');
         if (!workspaceFolder) {
             vscode.window.showErrorMessage('No workspace folder open.');
             return;
