@@ -2,7 +2,7 @@
   "name": "cline-dify-assistant",
   "displayName": "Cline Dify Assistant",
   "description": "AI coding assistant powered by Dify backend",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "publisher": "trae-ai",
   "repository": {
     "type": "git",
@@ -35,7 +35,8 @@
     "onCommand:cline-dify-assistant.runMcpQuery",
     "onCommand:cline-dify-assistant.insertCodeCitation",
     "onCommand:cline-dify-assistant.insertSelectionCitation",
-    "onCommand:cline-dify-assistant.copyInstallCommand"
+    "onCommand:cline-dify-assistant.copyInstallCommand",
+    "onCommand:cline-dify-assistant.generateNextSteps"
   ],
   "main": "./out/extension.js",
   "contributes": {
@@ -99,6 +100,10 @@
       {
         "command": "cline-dify-assistant.copyInstallCommand",
         "title": "Copy Install Command From Plan"
+      },
+      {
+        "command": "cline-dify-assistant.generateNextSteps",
+        "title": "Generate Next Steps (Planner Guidance)"
       }
     ],
     "menus": {
@@ -273,6 +278,11 @@
           ],
           "default": "ask",
           "description": "Conflict resolution strategy when generating files"
+        },
+        "cline-dify-assistant.generator.autoNextSteps": {
+          "type": "boolean",
+          "default": true,
+          "description": "Generate NEXT_STEPS.md after generator run"
         },
         "cline-dify-assistant.qa.includeProjectStructure": {
           "type": "boolean",

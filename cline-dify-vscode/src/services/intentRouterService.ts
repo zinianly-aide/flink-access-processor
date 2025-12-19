@@ -31,6 +31,10 @@ export class IntentRouterService {
             return { type: 'command', args: { command: 'cline-dify-assistant.copyInstallCommand' }, confidence: 0.85, source: 'rule' };
         }
 
+        if (/(下一步|后续|接下来).*(建议|操作|怎么做)/i.test(text) || /^next steps$/i.test(text)) {
+            return { type: 'command', args: { command: 'cline-dify-assistant.generateNextSteps' }, confidence: 0.85, source: 'rule' };
+        }
+
         if (/引用当前选区/i.test(text) || /引用选区/i.test(text)) {
             return { type: 'citationSelection', args: {}, confidence: 1, source: 'rule' };
         }

@@ -335,9 +335,9 @@ public class ApiMetadataServiceImpl implements ApiMetadataService {
      */
     private Object invokeControllerMethod(Object controller, String methodName, Map<String, Object> params) {
         // 根据方法名和参数调用控制器方法
+        // 获取方法对象
+        java.lang.reflect.Method method;
         try {
-            // 获取方法对象
-            java.lang.reflect.Method method;
             if (methodName.contains("Get") || methodName.contains("get")) {
                 // GET方法通常不需要参数或只需要路径参数
                 method = controller.getClass().getMethod(methodName);

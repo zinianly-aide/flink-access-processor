@@ -92,6 +92,10 @@ export function activate(context: vscode.ExtensionContext) {
         await generatorService.copyInstallCommand();
     });
 
+    const generateNextStepsCommand = vscode.commands.registerCommand('cline-dify-assistant.generateNextSteps', async () => {
+        await generatorService.generateNextSteps();
+    });
+
     // Register completion item provider
     const completionProvider = vscode.languages.registerCompletionItemProvider(
         '*',
@@ -120,6 +124,7 @@ export function activate(context: vscode.ExtensionContext) {
         insertCitationCommand,
         insertSelectionCitationCommand,
         copyInstallCommand,
+        generateNextStepsCommand,
         completionProvider
     );
 }

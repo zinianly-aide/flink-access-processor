@@ -2,3 +2,4 @@
 flink-connector-jdbc-*.jar
 target/
 *.log
+cline-dify-vscode/node_modules/

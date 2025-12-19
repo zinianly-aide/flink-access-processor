@@ -35,3 +35,6 @@
 - Q&A: append project context (structure/deps/last run/git) to prompts for better follow-up iteration
 - Q&A: add quick action buttons (structure/diff/command/tests/deps/generator/cite)
 - Generator: add “copy install command” command and offer to open Q&A after generation
+
+## 0.8.0
+- Planner: generate `NEXT_STEPS.md` (model-guided checklist) after generator runs, and via a command

@@ -4,6 +4,7 @@ import com.example.flinkmonitorbackend.service.DatabaseMetadataService;
 import com.example.flinkmonitorbackend.service.NaturalLanguageQueryService;
 import com.example.flinkmonitorbackend.service.LlmService;
 import com.example.flinkmonitorbackend.service.McpClientService;
+import com.example.flinkmonitorbackend.service.strategy.SqlGenerationStrategyManager;
 import com.example.flinkmonitorbackend.utils.SqlExecutor;
 import com.example.flinkmonitorbackend.utils.SqlValidationService;
 import org.slf4j.Logger;
@@ -20,8 +21,10 @@ import java.util.*;
 @Service
 public class NaturalLanguageQueryServiceImpl implements NaturalLanguageQueryService {
 
+
     private static final Logger log = LoggerFactory.getLogger(NaturalLanguageQueryServiceImpl.class);
     private static final String DEFAULT_SAFE_SQL = "SELECT id, org_name, org_code, is_active FROM organizations WHERE is_active = 1 LIMIT 50";
+
 
     @Autowired
     private SqlExecutor sqlExecutor;
@@ -34,6 +37,9 @@ public class NaturalLanguageQueryServiceImpl implements NaturalLanguageQueryServ
     
     @Autowired
     private McpClientService mcpClientService;
+    
+    @Autowired
+    private SqlGenerationStrategyManager sqlGenerationStrategyManager;
 
     @Autowired
     private SqlValidationService sqlValidationService;
@@ -73,12 +79,15 @@ public class NaturalLanguageQueryServiceImpl implements NaturalLanguageQueryServ
      */
     @Override
     public List<Map<String, Object>> executeNaturalLanguageQuery(String naturalLanguageQuery) {
-        // 将自然语言转换为SQL
+        logger.info("执行自然语言查询: {}", naturalLanguageQuery);
+        // 使用策略管理器生成SQL
         String sql = translateToSql(naturalLanguageQuery);
         // 执行SQL查询
         try {
+            logger.info("执行SQL查询: {}", sql);
             return sqlExecutor.executeQuery(sql);
         } catch (SQLException e) {
+            logger.error("SQL查询执行失败: {}", e.getMessage(), e);
             throw new RuntimeException("SQL查询执行失败: " + e.getMessage(), e);
         }
     }
@@ -88,20 +97,23 @@ public class NaturalLanguageQueryServiceImpl implements NaturalLanguageQueryServ
      */
     @Override
     public Map<String, Object> executeNaturalLanguageQueryWithEvaluation(String naturalLanguageQuery) {
+        logger.info("执行自然语言查询带评估: {}", naturalLanguageQuery);
         // 首先尝试直接调用MCP获取结果
         Map<String, Object> mcpResult = executeNaturalLanguageQueryWithMcp(naturalLanguageQuery);
         if (mcpResult != null && mcpResult.get("success") != null && (Boolean) mcpResult.get("success")) {
+            logger.info("MCP调用成功，返回结果");
             return mcpResult;
         }
         
         // 如果MCP调用失败或不适用，回退到SQL生成方式
-        // 将自然语言转换为SQL
         String sql = translateToSql(naturalLanguageQuery);
         // 执行SQL查询
         List<Map<String, Object>> results;
         try {
+            logger.info("执行SQL查询: {}", sql);
             results = sqlExecutor.executeQuery(sql);
         } catch (SQLException e) {
+            logger.error("SQL查询执行失败: {}", e.getMessage(), e);
             throw new RuntimeException("SQL查询执行失败: " + e.getMessage(), e);
         }
         
@@ -115,6 +127,8 @@ public class NaturalLanguageQueryServiceImpl implements NaturalLanguageQueryServ
         result.put("results", results);
         result.put("evaluation", evaluation);
         result.put("method", "sql");
+        
+        logger.info("查询完成，返回结果包含 {} 条记录", results.size());
         return result;
     }
 
@@ -158,7 +172,7 @@ public class NaturalLanguageQueryServiceImpl implements NaturalLanguageQueryServ
 
     /**
      * 将自然语言转换为SQL查询语句（不执行）
-     * 优先使用模板查询，其次使用数据库元数据生成SQL，最后使用Ollama大模型生成SQL，最后进行安全检查
+     * 优先使用策略管理器生成SQL，然后进行安全检查
      */
     @Override
     public String translateToSql(String naturalLanguageQuery) {
@@ -226,6 +240,7 @@ public class NaturalLanguageQueryServiceImpl implements NaturalLanguageQueryServ
      */
     private Map<String, Object> executeNaturalLanguageQueryWithMcp(String naturalLanguageQuery) {
         try {
+            logger.info("尝试使用MCP执行自然语言查询: {}", naturalLanguageQuery);
             // 分析自然语言查询，确定要调用的API
             String normalizedQuery = naturalLanguageQuery.toLowerCase();
             String apiId = null;
@@ -271,11 +286,87 @@ public class NaturalLanguageQueryServiceImpl implements NaturalLanguageQueryServ
                 return result;
             }
             
+            logger.info("未匹配到合适的API，回退到SQL方式");
             return null;
         } catch (Exception e) {
             log.warn("MCP调用失败，将回退到SQL方式: {}", e.getMessage(), e);
             return null;
         }
+    }
+    
+    /**
+     * 增强的SQL安全检查
+     * @param sql SQL查询语句
+     * @return 是否安全
+     */
+    private boolean isSqlSafeEnhanced(String sql) {
+        // 首先调用原有的SQL安全检查
+        boolean isSafe = llmService.isSqlSafe(sql);
+        if (!isSafe) {
+            return false;
+        }
+        
+        // 增强的安全检查
+        String lowerSql = sql.toLowerCase();
+        
+        // 检查是否包含危险的SQL关键字
+        String[] dangerousKeywords = {
+            "drop", "delete", "update", "insert", "truncate", "alter", "create", "drop", 
+            "grant", "revoke", "execute", "call", "declare", "set", "use", "backup", "restore",
+            "union", "except", "intersect", "into", "load", "outfile", "dumpfile"
+        };
+        
+        // 使用正则表达式检查完整关键字，避免匹配表名或列名中的子字符串
+        for (String keyword : dangerousKeywords) {
+            // 关键字前后必须是边界字符（空格、括号、逗号、分号等）
+            String pattern = "\\b" + keyword + "\\b";
+            if (lowerSql.matches(".*" + pattern + ".*")) {
+                logger.warn("SQL包含危险关键字: {}", keyword);
+                return false;
+            }
+        }
+        
+        // 检查是否包含注释
+        if (lowerSql.contains("--") || lowerSql.contains("/*") || lowerSql.contains("#")) {
+            logger.warn("SQL包含注释，可能存在安全风险");
+            return false;
+        }
+        
+        // 检查是否包含多个语句
+        if (lowerSql.contains(";")) {
+            logger.warn("SQL包含多个语句，可能存在注入风险");
+            return false;
+        }
+        
+        // 检查是否包含通配符删除
+        if (lowerSql.contains("* from") && lowerSql.contains("where 1=1")) {
+            logger.warn("SQL包含潜在的通配符注入风险");
+            return false;
+        }
+        
+        return true;
+    }
+    
+    /**
+     * 将自然语言转换为SQL查询语句并生成评估结果（不执行）
+     */
+    @Override
+    public Map<String, Object> translateToSqlWithEvaluation(String naturalLanguageQuery) {
+        logger.info("将自然语言转换为SQL并生成评估: {}", naturalLanguageQuery);
+        
+        // 使用策略管理器生成SQL
+        String sql = sqlGenerationStrategyManager.generateSql(naturalLanguageQuery);
+        logger.info("生成SQL: {}", sql);
+        
+        // 构建结果，不执行SQL，仅返回SQL和安全性评估
+        Map<String, Object> result = new HashMap<>();
+        result.put("query", naturalLanguageQuery);
+        result.put("sql", sql);
+        result.put("safe", isSqlSafeEnhanced(sql));
+        result.put("evaluation", "SQL语句已生成，未执行，无法提供详细评估结果。建议执行SQL后查看详细评估。");
+        
+        logger.info("SQL转换和评估完成");
+        return result;
     }
     
     /**
