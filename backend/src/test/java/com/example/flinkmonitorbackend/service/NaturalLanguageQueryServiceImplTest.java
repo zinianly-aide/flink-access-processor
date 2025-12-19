@@ -22,7 +22,7 @@ class NaturalLanguageQueryServiceImplTest {
         String query1 = "计算各部门的净加班小时数";
         String sql1 = naturalLanguageQueryService.translateToSql(query1);
         assertNotNull(sql1);
-        assertTrue(sql1.contains("SELECT"));
+        assertTrue(sql1.toUpperCase().contains("SELECT"));
         assertTrue(sql1.contains("net_overtime_hours"));
         assertTrue(sql1.contains("ORDER BY"));
 
@@ -30,7 +30,7 @@ class NaturalLanguageQueryServiceImplTest {
         String query2 = "查询所有部门的总请假小时数排行";
         String sql2 = naturalLanguageQueryService.translateToSql(query2);
         assertNotNull(sql2);
-        assertTrue(sql2.contains("SELECT"));
+        assertTrue(sql2.toUpperCase().contains("SELECT"));
         assertTrue(sql2.contains("total_leave_hours"));
         assertTrue(sql2.contains("ORDER BY"));
 
@@ -38,7 +38,7 @@ class NaturalLanguageQueryServiceImplTest {
         String query3 = "查询部门名称";
         String sql3 = naturalLanguageQueryService.translateToSql(query3);
         assertNotNull(sql3);
-        assertTrue(sql3.contains("SELECT"));
+        assertTrue(sql3.toUpperCase().contains("SELECT"));
         assertTrue(sql3.contains("organizations"));
     }
 
@@ -63,7 +63,7 @@ class NaturalLanguageQueryServiceImplTest {
         String query = "查询所有部门的详细信息";
         String sql = naturalLanguageQueryService.translateToSql(query);
         assertNotNull(sql);
-        assertTrue(sql.contains("SELECT"));
+        assertTrue(sql.toUpperCase().contains("SELECT"));
         assertTrue(sql.contains("organizations"));
     }
 }

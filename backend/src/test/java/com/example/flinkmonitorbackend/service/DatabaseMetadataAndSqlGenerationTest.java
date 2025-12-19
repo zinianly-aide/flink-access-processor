@@ -56,28 +56,28 @@ class DatabaseMetadataAndSqlGenerationTest {
         String query1 = "查询所有部门信息";
         String sql1 = naturalLanguageQueryService.translateToSql(query1);
         assertNotNull(sql1);
-        assertTrue(sql1.contains("SELECT"), "生成的SQL应该是SELECT语句");
+        assertTrue(sql1.toUpperCase().contains("SELECT"), "生成的SQL应该是SELECT语句");
         assertTrue(llmService.isSqlSafe(sql1), "生成的SQL应该是安全的");
         
         // 2. 测试异常工时查询
         String query2 = "查询最近的异常工时记录";
         String sql2 = naturalLanguageQueryService.translateToSql(query2);
         assertNotNull(sql2);
-        assertTrue(sql2.contains("SELECT"), "生成的SQL应该是SELECT语句");
+        assertTrue(sql2.toUpperCase().contains("SELECT"), "生成的SQL应该是SELECT语句");
         assertTrue(llmService.isSqlSafe(sql2), "生成的SQL应该是安全的");
         
         // 3. 测试员工请假查询
         String query3 = "查询员工请假记录";
         String sql3 = naturalLanguageQueryService.translateToSql(query3);
         assertNotNull(sql3);
-        assertTrue(sql3.contains("SELECT"), "生成的SQL应该是SELECT语句");
+        assertTrue(sql3.toUpperCase().contains("SELECT"), "生成的SQL应该是SELECT语句");
         assertTrue(llmService.isSqlSafe(sql3), "生成的SQL应该是安全的");
         
         // 4. 测试加班记录查询
         String query4 = "查询最近的加班记录";
         String sql4 = naturalLanguageQueryService.translateToSql(query4);
         assertNotNull(sql4);
-        assertTrue(sql4.contains("SELECT"), "生成的SQL应该是SELECT语句");
+        assertTrue(sql4.toUpperCase().contains("SELECT"), "生成的SQL应该是SELECT语句");
         assertTrue(llmService.isSqlSafe(sql4), "生成的SQL应该是安全的");
     }
     
@@ -148,42 +148,42 @@ class DatabaseMetadataAndSqlGenerationTest {
         String query1 = "查询当前时间";
         String sql1 = naturalLanguageQueryService.translateToSql(query1);
         assertNotNull(sql1);
-        assertTrue(sql1.contains("SELECT"), "生成的SQL应该是SELECT语句");
+        assertTrue(sql1.toUpperCase().contains("SELECT"), "生成的SQL应该是SELECT语句");
         assertTrue(llmService.isSqlSafe(sql1), "生成的SQL应该是安全的");
         
         // 2. 查询部门数量
         String query2 = "有多少个部门";
         String sql2 = naturalLanguageQueryService.translateToSql(query2);
         assertNotNull(sql2);
-        assertTrue(sql2.contains("SELECT"), "生成的SQL应该是SELECT语句");
+        assertTrue(sql2.toUpperCase().contains("SELECT"), "生成的SQL应该是SELECT语句");
         assertTrue(llmService.isSqlSafe(sql2), "生成的SQL应该是安全的");
         
         // 3. 查询活跃部门
         String query3 = "查询所有活跃的部门";
         String sql3 = naturalLanguageQueryService.translateToSql(query3);
         assertNotNull(sql3);
-        assertTrue(sql3.contains("SELECT"), "生成的SQL应该是SELECT语句");
+        assertTrue(sql3.toUpperCase().contains("SELECT"), "生成的SQL应该是SELECT语句");
         assertTrue(llmService.isSqlSafe(sql3), "生成的SQL应该是安全的");
         
         // 4. 查询特定部门信息
         String query4 = "查询研发部门的信息";
         String sql4 = naturalLanguageQueryService.translateToSql(query4);
         assertNotNull(sql4);
-        assertTrue(sql4.contains("SELECT"), "生成的SQL应该是SELECT语句");
+        assertTrue(sql4.toUpperCase().contains("SELECT"), "生成的SQL应该是SELECT语句");
         assertTrue(llmService.isSqlSafe(sql4), "生成的SQL应该是安全的");
         
         // 5. 查询员工加班记录数量
         String query5 = "查询员工加班记录的总数";
         String sql5 = naturalLanguageQueryService.translateToSql(query5);
         assertNotNull(sql5);
-        assertTrue(sql5.contains("SELECT"), "生成的SQL应该是SELECT语句");
+        assertTrue(sql5.toUpperCase().contains("SELECT"), "生成的SQL应该是SELECT语句");
         assertTrue(llmService.isSqlSafe(sql5), "生成的SQL应该是安全的");
         
         // 6. 查询最近的10条异常工时记录
         String query6 = "查询最近的10条异常工时记录";
         String sql6 = naturalLanguageQueryService.translateToSql(query6);
         assertNotNull(sql6);
-        assertTrue(sql6.contains("SELECT"), "生成的SQL应该是SELECT语句");
+        assertTrue(sql6.toUpperCase().contains("SELECT"), "生成的SQL应该是SELECT语句");
         assertTrue(llmService.isSqlSafe(sql6), "生成的SQL应该是安全的");
     }
     
@@ -200,14 +200,14 @@ class DatabaseMetadataAndSqlGenerationTest {
         String query2 = "部门";
         String sql2 = naturalLanguageQueryService.translateToSql(query2);
         assertNotNull(sql2);
-        assertTrue(sql2.contains("SELECT"), "生成的SQL应该是SELECT语句");
+        assertTrue(sql2.toUpperCase().contains("SELECT"), "生成的SQL应该是SELECT语句");
         assertTrue(llmService.isSqlSafe(sql2), "生成的SQL应该是安全的");
         
         // 3. 测试包含不相关词汇的查询
         String query3 = "查询部门信息，顺便告诉我天气如何";
         String sql3 = naturalLanguageQueryService.translateToSql(query3);
         assertNotNull(sql3);
-        assertTrue(sql3.contains("SELECT"), "生成的SQL应该是SELECT语句");
+        assertTrue(sql3.toUpperCase().contains("SELECT"), "生成的SQL应该是SELECT语句");
         assertTrue(sql3.contains("organizations"), "生成的SQL应该包含organizations表");
         assertTrue(llmService.isSqlSafe(sql3), "生成的SQL应该是安全的");
         
@@ -215,7 +215,7 @@ class DatabaseMetadataAndSqlGenerationTest {
         String query4 = "查询2023年12月各部门员工加班小时数超过100小时的部门，并按加班小时数降序排列";
         String sql4 = naturalLanguageQueryService.translateToSql(query4);
         assertNotNull(sql4);
-        assertTrue(sql4.contains("SELECT"), "生成的SQL应该是SELECT语句");
+        assertTrue(sql4.toUpperCase().contains("SELECT"), "生成的SQL应该是SELECT语句");
         assertTrue(llmService.isSqlSafe(sql4), "生成的SQL应该是安全的");
     }
 }

@@ -6,17 +6,14 @@ import com.example.flinkmonitorbackend.service.LlmService;
 import com.example.flinkmonitorbackend.service.McpClientService;
 import com.example.flinkmonitorbackend.service.strategy.SqlGenerationStrategyManager;
 import com.example.flinkmonitorbackend.utils.SqlExecutor;
+import com.example.flinkmonitorbackend.utils.SqlValidationService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.sql.SQLException;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 
 /**
  * 自然语言查询服务实现类
@@ -24,7 +21,10 @@ import java.util.Map;
 @Service
 public class NaturalLanguageQueryServiceImpl implements NaturalLanguageQueryService {
 
-    private static final Logger logger = LoggerFactory.getLogger(NaturalLanguageQueryServiceImpl.class);
+
+    private static final Logger log = LoggerFactory.getLogger(NaturalLanguageQueryServiceImpl.class);
+    private static final String DEFAULT_SAFE_SQL = "SELECT id, org_name, org_code, is_active FROM organizations WHERE is_active = 1 LIMIT 50";
+
 
     @Autowired
     private SqlExecutor sqlExecutor;
@@ -40,6 +40,9 @@ public class NaturalLanguageQueryServiceImpl implements NaturalLanguageQueryServ
     
     @Autowired
     private SqlGenerationStrategyManager sqlGenerationStrategyManager;
+
+    @Autowired
+    private SqlValidationService sqlValidationService;
 
     private static final Map<String, String> TABLE_NAME_MAPPINGS = new HashMap<>();
     private static final Map<String, String> COLUMN_NAME_MAPPINGS = new HashMap<>();
@@ -128,27 +131,40 @@ public class NaturalLanguageQueryServiceImpl implements NaturalLanguageQueryServ
         logger.info("查询完成，返回结果包含 {} 条记录", results.size());
         return result;
     }
+
+    private String sanitizeCandidateSql(String sql) {
+        if (sql == null || sql.trim().isEmpty()) {
+            throw new SecurityException("生成的SQL为空，拒绝执行");
+        }
+
+        String sanitized = sqlValidationService.sanitizeSql(sql);
+        if (!llmService.isSqlSafe(sanitized)) {
+            throw new SecurityException("LLM安全检查未通过");
+        }
+        return sanitized;
+    }
     
     /**
      * 执行自然语言查询并返回包含评估结果的数据
      */
     @Override
     public Map<String, Object> executeSqlWithEvaluation(String sql, String originalQuery) {
+        String sanitizedSql = sanitizeCandidateSql(sql);
         // 执行SQL查询
         List<Map<String, Object>> results;
         try {
-            results = sqlExecutor.executeQuery(sql);
+            results = sqlExecutor.executeQuery(sanitizedSql);
         } catch (SQLException e) {
             throw new RuntimeException("SQL查询执行失败: " + e.getMessage(), e);
         }
         
         // 评估查询结果
-        String evaluation = llmService.evaluateSqlResults(originalQuery, sql, results);
+        String evaluation = llmService.evaluateSqlResults(originalQuery, sanitizedSql, results);
         
         // 返回包含结果和评估的数据
         Map<String, Object> result = new HashMap<>();
         result.put("query", originalQuery);
-        result.put("sql", sql);
+        result.put("sql", sanitizedSql);
         result.put("results", results);
         result.put("evaluation", evaluation);
         return result;
@@ -160,20 +176,63 @@ public class NaturalLanguageQueryServiceImpl implements NaturalLanguageQueryServ
      */
     @Override
     public String translateToSql(String naturalLanguageQuery) {
-        logger.info("将自然语言转换为SQL: {}", naturalLanguageQuery);
-        
-        // 使用策略管理器生成SQL
-        String sql = sqlGenerationStrategyManager.generateSql(naturalLanguageQuery);
-        logger.info("生成SQL: {}", sql);
-        
-        // 增强SQL安全检查
-        if (!isSqlSafeEnhanced(sql)) {
-            logger.warn("SQL安全检查失败，返回安全查询: {}", sql);
-            return "SELECT id, org_name, org_code, is_active FROM organizations WHERE is_active = 1 LIMIT 10";
+        if (naturalLanguageQuery == null || naturalLanguageQuery.trim().isEmpty()) {
+            return sqlValidationService.sanitizeSql(DEFAULT_SAFE_SQL);
         }
-        
-        logger.info("SQL安全检查通过，返回生成的SQL");
-        return sql;
+
+        String normalizedQuery = naturalLanguageQuery.toLowerCase().trim();
+
+        log.info("正在处理自然语言查询: {}", naturalLanguageQuery);
+
+        List<String> candidates = new ArrayList<>();
+
+        String templateSql = matchTemplateQuery(normalizedQuery);
+        if (templateSql != null) {
+            candidates.add(templateSql);
+        }
+
+        String metadataSql = generateSqlFromMetadata(normalizedQuery);
+        if (metadataSql != null) {
+            candidates.add(metadataSql);
+        }
+
+        String mappedSql = generateSqlFromTableMapping(normalizedQuery);
+        if (mappedSql != null) {
+            candidates.add(mappedSql);
+        }
+
+        String regexSql = generateSqlFromRegex(normalizedQuery);
+        if (regexSql != null) {
+            candidates.add(regexSql);
+        }
+
+        String generatedSql = generateSqlFromOllama(normalizedQuery);
+        candidates.add(generatedSql);
+
+        for (String candidate : candidates) {
+            try {
+                String sanitized = sanitizeCandidateSql(candidate);
+                log.info("生成并通过校验的SQL: {}", sanitized);
+                return sanitized;
+            } catch (SecurityException ex) {
+                log.warn("SQL校验失败，将尝试下一种策略: {}", ex.getMessage());
+            }
+        }
+
+        return sqlValidationService.sanitizeSql(DEFAULT_SAFE_SQL);
+    }
+
+    @Override
+    public Map<String, Object> translateToSqlWithEvaluation(String naturalLanguageQuery) {
+        String sql = translateToSql(naturalLanguageQuery);
+        String evaluation = llmService.evaluateSqlResults(naturalLanguageQuery, sql, List.of());
+
+        Map<String, Object> result = new HashMap<>();
+        result.put("query", naturalLanguageQuery);
+        result.put("sql", sql);
+        result.put("evaluation", evaluation);
+        result.put("method", "translation");
+        return result;
     }
     
     /**
@@ -223,14 +282,14 @@ public class NaturalLanguageQueryServiceImpl implements NaturalLanguageQueryServ
                 result.put("evaluation", evaluation);
                 result.put("success", true);
                 
-                logger.info("MCP调用成功，返回结果");
+                log.info("MCP调用成功，结果: {}", result);
                 return result;
             }
             
             logger.info("未匹配到合适的API，回退到SQL方式");
             return null;
         } catch (Exception e) {
-            logger.error("MCP调用失败，将回退到SQL方式: {}", e.getMessage(), e);
+            log.warn("MCP调用失败，将回退到SQL方式: {}", e.getMessage(), e);
             return null;
         }
     }
@@ -406,10 +465,10 @@ public class NaturalLanguageQueryServiceImpl implements NaturalLanguageQueryServ
                 String actualTableName = mapping.getValue();
                 
                 // 从数据库元数据中获取表的重要列，减少硬编码
-                List<String> columns = getImportantColumnsForTable(actualTableName);
+                List<String> columns = getSelectableColumns(actualTableName);
                 
                 // 生成SQL查询，使用获取到的重要列而不是*，减少不必要的数据传输
-                String columnList = columns.isEmpty() ? "*" : String.join(", ", columns);
+                String columnList = String.join(", ", columns);
                 String sql = String.format("SELECT %s FROM %s", columnList, actualTableName);
                 
                 // 添加简单的过滤条件
@@ -434,7 +493,7 @@ public class NaturalLanguageQueryServiceImpl implements NaturalLanguageQueryServ
                 }
                 
                 // 添加分页
-                sql += " LIMIT 10";
+                sql += " LIMIT " + sqlValidationService.getMaxLimit();
                 
                 return sql;
             }
@@ -457,21 +516,25 @@ public class NaturalLanguageQueryServiceImpl implements NaturalLanguageQueryServ
                 String metric = query.substring(endIndex + 1).trim();
                 
                 if (metric.contains("请假")) {
+                    int limit = Math.min(extractNumber(dept), sqlValidationService.getMaxLimit());
                     return String.format(
                             "SELECT o.org_name, o.org_code, SUM(l.leave_hours) AS total_leave_hours " +
                             "FROM hrbp_leave_record l JOIN organizations o ON l.org_id = o.id " +
-                            "GROUP BY o.id, o.org_name, o.org_code ORDER BY total_leave_hours DESC" +
-                            (dept.contains("前") ? " LIMIT " + extractNumber(dept) : "")
+                            "GROUP BY o.id, o.org_name, o.org_code ORDER BY total_leave_hours DESC " +
+                            "LIMIT %d",
+                            limit
                     );
                 }
                 
                 if (metric.contains("加班")) {
+                    int limit = Math.min(extractNumber(dept), sqlValidationService.getMaxLimit());
                     return String.format(
                             "SELECT o.org_name, o.org_code, SUM(ot.overtime_hours) AS total_overtime_hours " +
                             "FROM overtime_records ot JOIN exceptional_hours_records e ON ot.emp_id = e.emp_id " +
                             "JOIN organizations o ON e.org_id = o.id " +
-                            "GROUP BY o.id, o.org_name, o.org_code ORDER BY total_overtime_hours DESC" +
-                            (dept.contains("前") ? " LIMIT " + extractNumber(dept) : "")
+                            "GROUP BY o.id, o.org_name, o.org_code ORDER BY total_overtime_hours DESC " +
+                            "LIMIT %d",
+                            limit
                     );
                 }
             }
@@ -483,7 +546,8 @@ public class NaturalLanguageQueryServiceImpl implements NaturalLanguageQueryServ
             for (Map.Entry<String, String> mapping : TABLE_NAME_MAPPINGS.entrySet()) {
                 if (tableDesc.contains(mapping.getKey())) {
                     String actualTableName = mapping.getValue();
-                    return String.format("SELECT * FROM %s LIMIT 10", actualTableName);
+                    String columnList = String.join(", ", getSelectableColumns(actualTableName));
+                    return String.format("SELECT %s FROM %s LIMIT %d", columnList, actualTableName, sqlValidationService.getMaxLimit());
                 }
             }
         }
@@ -509,21 +573,22 @@ public class NaturalLanguageQueryServiceImpl implements NaturalLanguageQueryServ
                                TABLE_NAME_MAPPINGS.entrySet().stream()
                                    .anyMatch(entry -> query.contains(entry.getKey()) && entry.getValue().equals(tableName));
                     })
+                    .filter(tableName -> !sqlValidationService.getAllowedColumns(tableName).isEmpty())
                     .findFirst()
                     .orElse("organizations");
             
             // 从数据库元数据中获取表的重要列，减少硬编码
-            List<String> columns = getImportantColumnsForTable(bestMatchTable);
+            List<String> columns = getSelectableColumns(bestMatchTable);
             
             // 生成SQL查询，使用获取到的重要列而不是*，减少不必要的数据传输
-            String columnList = columns.isEmpty() ? "*" : String.join(", ", columns);
+            String columnList = String.join(", ", columns);
             String sql = String.format("SELECT %s FROM %s", columnList, bestMatchTable);
             
             // 添加默认排序
             sql += String.format(" ORDER BY %s DESC", getDefaultOrderColumn(bestMatchTable));
             
             // 添加分页
-            sql += " LIMIT 10";
+            sql += " LIMIT " + sqlValidationService.getMaxLimit();
             
             return sql;
         } catch (Exception e) {
@@ -531,7 +596,7 @@ public class NaturalLanguageQueryServiceImpl implements NaturalLanguageQueryServ
             return null;
         }
     }
-    
+
     /**
      * 使用LLM大模型生成SQL查询
      */
@@ -553,22 +618,15 @@ public class NaturalLanguageQueryServiceImpl implements NaturalLanguageQueryServ
                 // 清理生成的SQL
                 String cleanedSql = llmService.cleanGeneratedSql(generatedSql);
                 
-                // 检查生成的SQL是否安全
-                if (llmService.isSqlSafe(cleanedSql)) {
-                    return cleanedSql;
-                } else {
-                    // 如果生成的SQL不安全，返回一个安全的默认查询
-                    return "SELECT id, org_name, org_code, is_active FROM organizations WHERE is_active = 1 LIMIT 10";
-                }
+                return sanitizeCandidateSql(cleanedSql);
             } catch (Exception e) {
                 retryCount++;
-                System.err.println("LLM调用失败，正在重试... (" + retryCount + "/" + maxRetries + ")");
-                System.err.println("错误信息: " + e.getMessage());
+                log.warn("LLM调用失败，正在重试... ({}/{}), 错误信息: {}", retryCount, maxRetries, e.getMessage());
                 
                 // 如果是最后一次重试，返回默认查询
                 if (retryCount >= maxRetries) {
-                    System.err.println("LLM调用多次失败，返回默认查询");
-                    return "SELECT id, org_name, org_code, is_active FROM organizations WHERE is_active = 1 LIMIT 10";
+                    log.error("LLM调用多次失败，返回默认查询", e);
+                    return DEFAULT_SAFE_SQL;
                 }
                 
                 // 等待一段时间后重试
@@ -582,6 +640,20 @@ public class NaturalLanguageQueryServiceImpl implements NaturalLanguageQueryServ
         }
         
         return generatedSql;
+    }
+
+    private List<String> getSelectableColumns(String tableName) {
+        List<String> allowedColumns = sqlValidationService.getAllowedColumns(tableName);
+        if (!allowedColumns.isEmpty()) {
+            return allowedColumns;
+        }
+
+        List<String> importantColumns = getImportantColumnsForTable(tableName);
+        if (!importantColumns.isEmpty()) {
+            return importantColumns;
+        }
+
+        return List.of("id");
     }
     
     /**
